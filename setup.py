@@ -9,7 +9,7 @@ setup(
     description='Python library for interfacing with yeelight\'s bt lights',
     url='https://github.com/rytilahti/python-yeelightbt',
 
-    author='Teemu Rytilahti',
+    author='Teemu Rytilahti - Fabien Valthier',
     author_email='tpr@iki.fi',
 
     license='GPLv3',
@@ -26,7 +26,7 @@ setup(
     packages=["yeelightbt"],
 
     python_requires='>=3.4',
-    install_requires=['bluepy', 'construct', 'click'],
+    install_requires=['bluepy', 'click'],
     entry_points={
         'console_scripts': [
             'yeelightbt=yeelightbt.cli:cli',
