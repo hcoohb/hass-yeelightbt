@@ -13,22 +13,20 @@ pass_dev = click.make_pass_decorator(Lamp)
 
 @click.pass_context
 def paired_cb(ctx, data):
-    data = data.payload
-    if data.pairing_status == "PairRequest":
+    if data == 1:
         click.echo("Waiting for pairing, please push the button/change the brightness")
         time.sleep(5)
-    elif data.pairing_status == "PairSuccess":
+    elif data==2 :
         click.echo("We are paired.")
-    elif data.pairing_status == "PairFailed":
+    elif data == 3:
         click.echo("Pairing failed, exiting")
         sys.exit(-1)
     if DEBUG:
-        click.echo("Got paired? %s" % data.pairing_status)
+        click.echo("Got paired? %s" % data)
 
 
 @click.pass_context
 def notification_cb(ctx, data):
-    print("Got notif: %s" % data)
     if DEBUG:
         click.echo("Got notification: %s" % data)
 
@@ -117,11 +115,6 @@ def off(dev):
     """ Turns the lamp off. """
     dev.turn_off()
 
-@cli.command()
-@pass_dev
-def wait_for_notifications(dev):
-    """Wait for notifications."""
-    dev.wait_for_notifications()
 
 @cli.command()
 @click.argument("brightness", type=int, default=None, required=False)
@@ -193,13 +186,12 @@ def sleep(dev: Lamp, time):
 @pass_dev
 def state(dev):
     """ Requests the state from the device. """
-    click.echo(click.style("MAC: %s" % dev.mac, bold=dev.is_on))
+    click.echo("MAC: %s" % dev.mac)
+    click.echo("  ON: %s" % dev._is_on)
     click.echo("  Mode: %s" % dev.mode)
     click.echo("  Color: %s" % (dev.color,))
     click.echo("  Temperature: %s" % dev.temperature)
     click.echo("  Brightness: %s" % dev.brightness)
-
-    dev._conn.wait(60)
 
 
 @cli.command()
