@@ -3,11 +3,11 @@ from setuptools import setup
 with open('yeelightbt/version.py') as f: exec(f.read())
 
 setup(
-    name='python-yeelightbt',
+    name='yeelightbt',
 
     version=__version__,
     description='Python library for interfacing with yeelight\'s bt lights',
-    url='https://github.com/rytilahti/python-yeelightbt',
+    url='https://github.com/hcoohb/python-yeelightbt',
 
     author='Teemu Rytilahti - Fabien Valthier',
     author_email='tpr@iki.fi',
