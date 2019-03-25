@@ -4,7 +4,35 @@ import logging
 import time
 import threading
 from .connection import BTLEConnection
-from .structures import Request, Response, StateResult
+#from .structures import Request, Response, StateResult
+
+COMMAND_STX = 0x43
+CMD_PAIR = 0x67
+CMD_PAIR_ON = 0x02
+RES_PAIR = 0x63
+CMD_POWER = 0x40
+CMD_POWER_ON = 0x01
+CMD_POWER_OFF = 0x02
+CMD_COLOR = 0x41
+CMD_BRIGHTNESS = 0x42
+CMD_TEMP = 0x43
+CMD_RGB = 0x41
+CMD_GETSTATE = 0x44
+CMD_GETSTATE_SEC = 0x02
+RES_GETSTATE = 0x45
+RES_GETNAME = 0x53
+RES_GETVER = 0x5D
+RES_GETSERIAL = 0x5f
+RES_GETTIME = 0x62
+cmdDict={}
+cmdDict["GetName"]=0x52
+cmdDict["GetVersion"]=0x5C
+cmdDict["GetSerialNumber"]=0x5e
+cmdDict["GetTime"]=0x61
+
+MODE_COLOR = 0x01
+MODE_WHITE = 0x02
+MODE_FLOW = 0x03
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -17,21 +45,48 @@ def cmd(cmd):
         if isinstance(req, tuple):
             params = req[1]
             req = req[0]
-
+        
         query = {"type": req}
         if params:
             if "wait" in params:
                 wait = params["wait"]
                 del params["wait"]
-            query["payload"] = params
+            query.update(params)
 
         _LOGGER.debug(">> %s (wait: %s)", query, wait)
-        _ex = None
+
         try_count = 3
+        if req == "Pair":
+            bits=struct.pack("BBB15x",COMMAND_STX,CMD_PAIR,CMD_PAIR_ON)
+        elif req == "GetState":
+            bits=struct.pack("BBB15x",COMMAND_STX,CMD_GETSTATE,CMD_GETSTATE_SEC)
+        elif req in cmdDict:
+            bits=struct.pack("BB16x",COMMAND_STX,cmdDict[req])
+            
+        elif req == "SetOnOff":
+            cmd2=CMD_POWER_ON if query['state'] else CMD_POWER_OFF
+            bits=struct.pack("BBB15x",COMMAND_STX,CMD_POWER,cmd2)
+        elif req == "SetBrightness":
+            #ensure it is [1-100]
+            _LOGGER.debug("brightness to set: %i)", int(query['brightness']))
+            bits=struct.pack("BBB15x",COMMAND_STX,CMD_BRIGHTNESS,int(query['brightness']))#.to_bytes(1, 'little')
+        elif req == "SetTemperature":
+            # 1700 - 6500 K
+            bits=struct.pack(">BBhB13x",COMMAND_STX,CMD_TEMP,int(query['temperature']),int(query['brightness']))
+            #return "SetTemperature", {"temperature": kelvin, "brightness": brightness} #do we need the brightness ?
+        elif req == "SetColor":
+            bits=struct.pack("BBBBBBB14x",COMMAND_STX,CMD_RGB,int(query['red']),int(query['green']),int(query['blue']),0x01,int(query['brightness']))
+            try_count=2
+            #return "SetColor", {"red": red, "green": green, "blue": blue, "brightness": brightness} #do we need the brightness ?
+            
+        
+        _ex = None
         while try_count > 0:
             try:
-                request_bytes = Request.build(query)
-                res = self.control_char.write(request_bytes,
+                #_LOGGER.debug("building Query: %s ", query)
+                #bits=Request.build(query)
+                _LOGGER.debug("sending CMD %s ", codecs.encode(bits, 'hex'))
+                res = self.control_char.write(bits,
                                               withResponse=True)
                 self._conn.wait(wait)
 
@@ -39,7 +94,6 @@ def cmd(cmd):
             except Exception as ex:
                 _LOGGER.error("got exception on %s, tries left %s: %s",
                               query, try_count, ex)
-                raise
                 _ex = ex
                 try_count -= 1
                 self.connect()
@@ -103,10 +157,6 @@ class Lamp:
                                 struct.pack("<BB", 0x01, 0x00),
                                 timeout=None)
         self.pair()
-
-    def wait_for_notifications(self):
-        while True:
-            self._conn.wait(1)
 
     def disconnect(self):
         self._conn.disconnect()
@@ -212,10 +262,10 @@ class Lamp:
 
     @cmd
     def set_color(self, red: int, green: int, blue: int, brightness: int):
-        return "SetColor", {"red": red, "green": green, "blue": blue, "brightness": brightness}
+        return "SetColor", {"red": red, "green": green, "blue": blue, "brightness": brightness,"wait": 1}
 
     @cmd
-    def state(self) -> StateResult:
+    def state(self):
         return "GetState", {"wait": 0.5}
 
     @cmd
@@ -233,25 +283,42 @@ class Lamp:
     def __str__(self):
         return "<Lamp %s is_on(%s) mode(%s) rgb(%s) brightness(%s) colortemp(%s)>" % (
             self._mac, self._is_on, self._mode, self._rgb, self._brightness, self._temperature)
-
+    
+    def RawAsInt(self,byteVal):
+        return int('{:02x}'.format(byteVal))
+    
     def handle_notification(self, data):
         _LOGGER.debug("<< %s", codecs.encode(data, 'hex'))
-        res = Response.parse(data)
-        payload = res.payload
-        if res.type == "StateResult":
-            self._is_on = payload.state
-            self._mode = payload.mode
-            self._rgb = (payload.red, payload.green, payload.blue, payload.white)
-            self._brightness = payload.brightness
-            self._temperature = payload.temperature
+        #res = Response.parse(data)
+        res = struct.unpack("xB16x",data)[0]
+        #print(res)
+        if res == RES_GETSTATE:
+            res2 = struct.unpack(">xxBBBBBBBhx6x",data)
+            self._is_on = res2[0]==CMD_POWER_ON
+            self._mode = (res2[1]==MODE_COLOR)*"Color"+(res2[1]==MODE_WHITE)*"White"+(res2[1]==MODE_FLOW)*"Flow"
+            self._rgb = (res2[2], res2[3], res2[4], res2[5])
+            self._brightness = res2[6]
+            self._temperature = res2[7]
 
             if self._status_cb:
                 self._status_cb(self)
-        elif res.type == "PairingResult":
-            _LOGGER.debug("pairing res: %s", res)
-
+        elif res == RES_PAIR:
+            _LOGGER.debug("pairing res: %s", struct.unpack("xxB"+"x"*15,data)[0])
             if self._paired_cb:
                 self._paired_cb(res)
+                
+        elif res == RES_GETNAME:
+            res2 = struct.unpack("xxBB14s",data)
+            _LOGGER.debug("id%i index%i, Name res: %s", res2[0],res2[1],res2[2].decode("utf-8") )
+        elif res == RES_GETVER:
+            res2 = struct.unpack(">xxBHHHH6x",data)
+            _LOGGER.debug("Current Running:%i hw_version:%i, sw_version_app1:%i, sw_version_app2:%i, beacon_version:%i", res2[0],res2[1],res2[2],res2[3],res2[4] )
+        elif res == RES_GETSERIAL:
+            res2 = struct.unpack("xx16s",data)
+            _LOGGER.debug("Serial number: %s", res2[0].decode("utf-8") )
+        elif res == RES_GETTIME:
+            res2 = struct.unpack("xxBBBBxBB9x",data)
+            _LOGGER.debug("%i/%i/%i %i:%i:%i", self.RawAsInt(res2[3]),self.RawAsInt(res2[4]),self.RawAsInt(res2[5]),self.RawAsInt(res2[2]),self.RawAsInt(res2[1]),self.RawAsInt(res2[0]) )
 
         else:
-            _LOGGER.info("Unhandled cb: %s", res)
+            _LOGGER.info("Unhandled cb: %s", codecs.encode(data, 'hex'))
