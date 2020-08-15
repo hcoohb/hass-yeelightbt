@@ -14,7 +14,7 @@ from homeassistant.components.light import (
     ATTR_BRIGHTNESS, ATTR_COLOR_TEMP, ATTR_EFFECT,
     ATTR_RGB_COLOR, SUPPORT_BRIGHTNESS,ATTR_HS_COLOR,
     SUPPORT_COLOR_TEMP, SUPPORT_EFFECT, SUPPORT_COLOR, SUPPORT_WHITE_VALUE,
-    Light, PLATFORM_SCHEMA)
+    LightEntity, PLATFORM_SCHEMA)
 
 from homeassistant.util.color import (
     color_temperature_mired_to_kelvin as mired_to_kelvin,
@@ -58,7 +58,7 @@ def setup_platform(hass, config, add_devices_callback, discovery_info=None):
     add_devices_callback(lights)  # request an update before adding
 
 
-class YeelightBT(Light):
+class YeelightBT(LightEntity):
     """Represenation of a demo light."""
 
     def __init__(self, name, mac):
