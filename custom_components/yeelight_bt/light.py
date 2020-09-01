@@ -2,7 +2,8 @@
 Yeelight bt platform,
 based on demo & yeelight components.
 
-Author: Teemu Rytilahti <tpr@iki.fi>
+Authors: Teemu Rytilahti <tpr@iki.fi>,
+         Fabien Valthier <hcoohb@gmail.com>
 """
 
 import logging
@@ -127,7 +128,7 @@ class YeelightBT(LightEntity):
 
     @property
     def _dev(self):
-        from yeelightbt import Lamp
+        from .yeelightbt import Lamp
         if not self.__dev:
             _LOGGER.debug("Initializing %s %s",self.name, self._mac)
             self.__dev = Lamp(self._mac, self._status_cb, keep_connection=True)
@@ -135,7 +136,7 @@ class YeelightBT(LightEntity):
 
     def _status_cb(self, _):
         _LOGGER.debug("Got notification from the lamp")
-        from yeelightbt import LampMode
+        from .yeelightbt import MODE_WHITE
         if not self._dev.color:
             _LOGGER.error("no color available -> device not connected")
             return  # notification not yet there..
@@ -143,7 +144,7 @@ class YeelightBT(LightEntity):
         self._available = self._dev.available
         self._state = self._dev.is_on
 
-        if self._dev.mode == LampMode.White:
+        if self._dev.mode == MODE_WHITE:
             self._ct = int(kelvin_to_mired(int(self._dev.temperature)))
             # when in white mode, rgb is not set so we calculate it ourselves
             self._rgb = color_temperature_to_rgb(self._dev.temperature)

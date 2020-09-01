@@ -3,8 +3,12 @@ import codecs
 import logging
 import time
 import threading
-from .connection import BTLEConnection
-#from .structures import Request, Response, StateResult
+
+import logging
+import codecs
+import time
+
+from bluepy import btle
 
 COMMAND_STX = 0x43
 CMD_PAIR = 0x67
@@ -35,6 +39,81 @@ MODE_WHITE = 0x02
 MODE_FLOW = 0x03
 
 _LOGGER = logging.getLogger(__name__)
+
+
+DEFAULT_TIMEOUT = 3
+
+
+class BTLEConnection(btle.DefaultDelegate):
+    """Representation of a BTLE Connection."""
+
+    def __init__(self, mac):
+        """Initialize the connection."""
+        btle.DefaultDelegate.__init__(self)
+
+        self._conn = btle.Peripheral()
+        self._conn.withDelegate(self)
+        self._mac = mac
+        self._callbacks = {}
+
+    def connect(self):
+        _LOGGER.debug("Trying to connect to %s", self._mac)
+        try:
+            self._conn.connect(self._mac)
+        except btle.BTLEException as ex:
+            _LOGGER.warning("Unable to connect to the device %s, retrying: %s", self._mac, ex)
+            try:
+                self._conn.connect(self._mac)
+            except Exception as ex2:
+                _LOGGER.error("Second connection try to %s failed: %s", self._mac, ex2)
+                raise
+
+        _LOGGER.debug("Connected to %s", self._mac)
+
+    def disconnect(self):
+        if self._conn:
+            self._conn.disconnect()
+            self._conn = None
+
+    def wait(self, sec):
+        end = time.time() + sec
+        while time.time() < end:
+            self._conn.waitForNotifications(timeout=0.1)
+
+    def get_services(self):
+        return self._conn.getServices()
+
+    def get_characteristics(self, uuid=None):
+        if uuid:
+            _LOGGER.info("Requesting characteristics for uuid %s", uuid)
+            return self._conn.getCharacteristics(uuid=uuid)
+        return self._conn.getCharacteristics()
+
+    def handleNotification(self, handle, data):
+        """Handle Callback from a Bluetooth (GATT) request."""
+        _LOGGER.debug("Got notification from %s: %s", handle, codecs.encode(data, 'hex'))
+        if handle in self._callbacks:
+            self._callbacks[handle](data)
+
+    @property
+    def mac(self):
+        """Return the MAC address of the connected device."""
+        return self._mac
+
+    def set_callback(self, handle, function):
+        """Set the callback for a Notification handle. It will be called with the parameter data, which is binary."""
+        self._callbacks[handle] = function
+
+    def make_request(self, handle, value, timeout=0, with_response=False):
+        """Write a GATT Command without callback - not utf-8."""
+        _LOGGER.debug("Writing %s to %s with with_response=%s", codecs.encode(value, 'hex'), handle, with_response)
+        res = self._conn.writeCharacteristic(handle, value, withResponse=with_response)
+        if timeout:
+            self.wait(timeout)
+
+        return res
+
+
 
 def cmd(cmd):
     def _wrap(self, *args, **kwargs):

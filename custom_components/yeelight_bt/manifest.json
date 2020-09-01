@@ -1,8 +1,8 @@
 {
   "domain": "yeelight_bt",
-  "name": "yeelight_bt - Originally made by rytilahti, modded by hcoohb.",
+  "name": "Yeelight bluetooth",
   "documentation": "https://github.com/hcoohb/python-yeelightbt",
   "dependencies": [],
-  "codeowners": [],
-  "requirements": []
+  "codeowners": ["@hcoohb"],
+  "requirements": ["voluptuous", "bluepy", "click"]
 }
