@@ -2,14 +2,14 @@
 Yeelight bt platform,
 based on demo & yeelight components.
 
-Authors: Teemu Rytilahti <tpr@iki.fi>,
-         Fabien Valthier <hcoohb@gmail.com>
+Author: Teemu Rytilahti <tpr@iki.fi>
 """
 
 import logging
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
-from homeassistant.const import CONF_DEVICES, CONF_NAME, CONF_MAC
+from homeassistant.const import CONF_NAME, CONF_MAC
+from .const import DOMAIN
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS, ATTR_COLOR_TEMP, ATTR_EFFECT,
@@ -26,13 +26,9 @@ from homeassistant.util.color import (
 CONF_KEEP_ALIVE = "keep_alive"
 
 
-DEVICE_SCHEMA = vol.Schema({
-    vol.Required(CONF_MAC): cv.string,
-})
-
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-    vol.Required(CONF_DEVICES):
-        vol.Schema({cv.string: DEVICE_SCHEMA}),
+    vol.Required(CONF_MAC): cv.string,
+    vol.Optional(CONF_NAME, default=DOMAIN): cv.string,
 })
 
 LIGHT_EFFECT_LIST = ['flow', 'none']
@@ -44,19 +40,16 @@ SUPPORT_YEELIGHTBT = (SUPPORT_BRIGHTNESS | SUPPORT_COLOR_TEMP |
 _LOGGER = logging.getLogger(__name__)
 
 
-def setup_platform(hass, config, add_devices_callback, discovery_info=None):
+def setup_platform(hass, config, add_entities, discovery_info=None):
     """Setup the yeelightbt light platform."""
-    lights = []
+    mac = config[CONF_MAC]
+    name = config[CONF_NAME]
+
     if discovery_info is not None:
         _LOGGER.debug("Adding autodetected %s", discovery_info['hostname'])
-
-        lights.append(YeelightBT(discovery_info[CONF_MAC], DEVICE_SCHEMA({})))
-    else:
-        for name, device_cfg in config[CONF_DEVICES].items():
-            mac = device_cfg[CONF_MAC]
-            lights.append(YeelightBT(name, mac))
-            _LOGGER.debug("Appended light %s with mac:%s", name, mac)
-    add_devices_callback(lights)  # request an update before adding
+        name=DOMAIN
+    _LOGGER.debug(f"Adding light {name} with mac:{mac}")
+    add_entities([YeelightBT(name, mac)])
 
 
 class YeelightBT(LightEntity):
