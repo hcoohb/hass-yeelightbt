@@ -1,27 +1,22 @@
-# Python library for Yeelight Bedside lamp
+# Home Assistant custom component for Yeelight Bedside lamp
 
-This is an ongoing effort to create a python library for [Yeelight's bedside lamp](http://www.yeelight.com/en_US/product/yeelight-ctd) and Yeelight Candela.
-Candelas support only setting the light on and off, and adjusting the brightness.
+This is a custom component for Home Assistant that allows the control of the Yeelight bedside Lamp via bluetooth. (Contrary to the wifi version, those lamps only have bluetooth control).
 
-Patches are very welcome, if you intent to contribute, please do note that quite a lot of the protocol is already figured out but lacking interfaces.
-
-Currently supported features:
-* State
-* Color mode (white, color, flow)
-* Temperature
-* Brightness
-* Sleep, wakeup & scheduling (partially)
-
-TBD:
-* Flow mode
-* Other features?
+Originally based on the work by Teemu Rytilahti [python-yeelightbt](https://github.com/rytilahti/python-yeelightbt), it has been heavily modified to improve stability and only focuses on the integration with HA.
 
 # Installation
 
-```
-pip install git+https://github.com/rytilahti/python-yeelightbt/
-```
 
+### MANUAL INSTALLATION
+
+1. Download the `hass-yeelight_bt.zip` file from the
+   [latest release](https://github.com/hcoohb/hass-yeelightbt/releases/latest).
+2. Unpack the release and copy the `custom_components/yeelight_bt` directory
+   into the `custom_components` directory of your Home Assistant
+   installation.
+3. Add the `yeelight_bt` lights as described in next section.
+
+This component use the `bluepy` python library to access bluetooth.
 In case you are getting "No such file or directory" error for bluepy-helper, you have to go into bluepy's directory and run make there.
 It is also a good idea to let the helper to have capabilities for accessing the bluetooth devices without being root, e.g., by doing the following:
 
@@ -29,69 +24,29 @@ It is also a good idea to let the helper to have capabilities for accessing the 
 setcap cap_net_admin,cap_net_raw+eip bluepy-helper
 ```
 
-And then simply try if the scanning works. You can use pass '-dd' as option to the command to see the debug messages from bluepy in case it is not working.
 
-# Usage
+# Homeassistant configuration
 
-Try
-```
-$ yeelightbt --help
-```
-and
-```
-$ yeelightbt [command] --help
-```
+### USING configuration.yaml
 
-For debugging you can pass -d/--debug, adding it second time will also print out the debug from bluepy.
-
-## Finding supported devices
-
-```
-$ yeelightbt scan
-Scanning for 5 seconds
-Devices found:
-  f8:24:41:xx:xx:xx (XMCTD_XXXX), rssi=-83
-
-```
-
-## Reading status & states
-
-To avoid passing ```--mac``` for every call, set the following environment variable:
-
-```
-export YEELIGHTBT_MAC=AA:BB:CC:11:22:33
-```
-
-```
-$ yeelightbt
-
-MAC: f8:24:41:xx:xx:xx
-  Mode: LampMode.White
-  Color: (0, 0, 0)
-  Temperature: 5000
-  Brightness: 50
-```
-
-```
-$ yeelightbt temperature
-
-Temperature: 5000
-```
-
-```
-$ yeelightbt color 255 0 0
-Setting color: 255 0 0
-```
-
-# Homeassistant support
-
-There is also a WIP [Home Assistant](https://home-assistant.io/) component stored inside custom_components.
-Just copy the file over to `~/.homeassistant/custom_components/light/` and add the following into your config:
-
-```
-light:
-  - platform: yeelight_bt
-    devices:
-      Bedside:
+1. For each lamp, create a light with the `yeelight_bt` platform and configure the `name` and `mac` address.
+    
+    Example:
+    ```yaml
+    light:
+      - platform: yeelight_bt
+        name: Bedside lamp
         mac: 'f8:24:41:xx:xx:xx'
-```
+      - platform: yeelight_bt
+        name: Other lamp
+        mac: 'f8:24:41:xx:xx:xx'
+    ```
+
+2. Restart Home Assistant.
+
+### USING the integrations menu
+
+In Configuration/Integrations click on the + button, select `Yeelight bluetooth` and configure the name and mac address on the form.
+The light is automatically added and a device is created.
+
+
