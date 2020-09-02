@@ -1,7 +1,8 @@
 {
   "domain": "yeelight_bt",
   "name": "Yeelight bluetooth",
-  "documentation": "https://github.com/hcoohb/python-yeelightbt",
+  "config_flow": true,
+  "documentation": "https://github.com/hcoohb/hass-yeelightbt",
   "dependencies": [],
   "codeowners": ["@hcoohb"],
   "requirements": ["voluptuous", "bluepy", "click"]

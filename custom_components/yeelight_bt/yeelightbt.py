@@ -1,3 +1,5 @@
+""" library to communicate with Yeelight BT through ble (bluepy) """
+
 import struct
 import codecs
 import logging

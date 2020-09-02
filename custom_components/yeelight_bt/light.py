@@ -1,15 +1,12 @@
-"""
-Yeelight bt platform,
-based on demo & yeelight components.
-
-Author: Teemu Rytilahti <tpr@iki.fi>
-"""
+""" light platform """
 
 import logging
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.const import CONF_NAME, CONF_MAC
 from .const import DOMAIN
+from homeassistant.components.light import ENTITY_ID_FORMAT
+from homeassistant.helpers.entity import generate_entity_id
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS, ATTR_COLOR_TEMP, ATTR_EFFECT,
@@ -52,6 +49,14 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     add_entities([YeelightBT(name, mac)])
 
 
+async def async_setup_entry(hass, config_entry, async_add_entities):
+    """Set up the platform from config_entry."""
+    _LOGGER.debug(f"async_setup_entry:setting up the config entry {config_entry.title} with data:{config_entry.data}")
+    name = config_entry.data.get(CONF_NAME) or DOMAIN
+    mac = config_entry.data.get(CONF_MAC)
+    async_add_entities([YeelightBT(name, mac)])
+
+
 class YeelightBT(LightEntity):
     """Represenation of a demo light."""
 
@@ -59,6 +64,7 @@ class YeelightBT(LightEntity):
         """Initialize the light."""
         self._name = name
         self._mac = mac
+        self.entity_id = generate_entity_id(ENTITY_ID_FORMAT, self._name, [])
         self._state = None
         self._rgb = None
         self._ct = None
@@ -69,6 +75,24 @@ class YeelightBT(LightEntity):
         self._is_updating = False
 
         self.__dev = None
+
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {
+                # Serial numbers are unique identifiers within a specific domain
+                (DOMAIN, self.unique_id)
+            },
+            "name": self._name,
+            "manufacturer": "xiaomi",
+            "model": "yeelight_bt",
+            # "sw_version": self.light.swversion,
+        }
+
+    @property
+    def unique_id(self):
+        """Return the unique id of the light."""
+        return self._mac
 
     @property
     def available(self) -> bool:

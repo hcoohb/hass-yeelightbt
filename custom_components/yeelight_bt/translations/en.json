@@ -1,0 +1,16 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Yeelight Bluetooth",
+        "description": "Control a Xiaomi Yeelight bluetooth bedside lamp.",
+        "data": {
+          "name": "Lamp Name",
+          "mac": "MAC address"
+        }
+      }
+    },
+    "error": {"general_error": "There was an unknown error." },
+    "abort": {"already_configured": "This mac address is already registered."}
+  }
+}
