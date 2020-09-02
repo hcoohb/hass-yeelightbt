@@ -3,6 +3,7 @@
   "name": "Yeelight bluetooth",
   "config_flow": true,
   "documentation": "https://github.com/hcoohb/hass-yeelightbt",
+  "issue_tracker": "https://github.com/hcoohb/hass-yeelightbt/issues",
   "dependencies": [],
   "codeowners": ["@hcoohb"],
   "requirements": ["voluptuous", "bluepy", "click"]
