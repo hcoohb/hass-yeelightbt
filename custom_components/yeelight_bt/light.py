@@ -152,10 +152,14 @@ class YeelightBT(LightEntity):
 
     def _status_cb(self):
         _LOGGER.debug("Got state notification from the lamp")
-        self._brightness = 255 * (int(self._dev.brightness) / 100)
         self._available = self._dev.available
-        self._is_on = self._dev.is_on
+        if not self._available:
+            _LOGGER.debug(f"IS UPDATING2 {self._is_updating}")
+            self.schedule_update_ha_state()
+            return
 
+        self._brightness = 255 * (int(self._dev.brightness) / 100)
+        self._is_on = self._dev.is_on
         if self._dev.mode == self._dev.MODE_WHITE:
             self._ct = int(kelvin_to_mired(int(self._dev.temperature)))
             # when in white mode, rgb is not set so we calculate it ourselves
@@ -166,25 +170,30 @@ class YeelightBT(LightEntity):
 
         # _LOGGER.debug("available: %s, state: %s, mode: %s, bright: %s, rgb: %s, ct: %s",
         #               self._available, self._is_on, self._dev.mode, self._brightness, self._rgb, self._ct)
-
+    
         self._is_updating = False
+        _LOGGER.debug(f"IS UPDATING2 {self._is_updating}")
         self.schedule_update_ha_state()
 
     def update(self):
         # Note, update should only start fetching,
         # followed by asynchronous updates through notifications.
         if self._is_updating:
+            _LOGGER.debug("An update is still in progress... NOT requesting another one")
             return
         try:
             _LOGGER.debug("Requesting an update of the lamp status")
             self._is_updating = True
+            _LOGGER.debug(f"IS UPDATING1 {self._is_updating}")
             ret = self._dev.get_state() #blocking...
-            if not ret: #Could not connect
+            if not ret: #Could not connect and finished all re-tries
                 _LOGGER.debug(f"Update returned {ret}")
                 self._is_updating=False
+            _LOGGER.debug(f"IS UPDATING1b {self._is_updating}")
         except Exception as ex:
             _LOGGER.error(f"Fail requesting the light status. Got exception: {ex}")
             self._is_updating = False
+            _LOGGER.debug(f"IS UPDATING1c {self._is_updating}")
 
     def turn_on(self, **kwargs):
         """Turn the light on."""

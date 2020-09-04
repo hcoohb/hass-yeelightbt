@@ -45,7 +45,7 @@ RES_GETTIME = 0x62
 _LOGGER = logging.getLogger(__name__)
 
 
-def retry(ExceptionToCheck, tries=3, delay=0.1):
+def retry(ExceptionToCheck, tries=3, delay=0.1, func_in_between=None):
     """Retry calling the decorated function using an exponential backoff.
 
     :param ExceptionToCheck: the exception to check. may be a tuple of
@@ -70,6 +70,8 @@ def retry(ExceptionToCheck, tries=3, delay=0.1):
                       msg +=f", Retrying in {mdelay} seconds..."
                       _LOGGER.warning(msg)
                       time.sleep(mdelay)
+                      if func_in_between is not None:
+                        func_in_between()
                       mtries -= 1
                     else:
                       _LOGGER.error(msg)
@@ -106,6 +108,9 @@ class Lamp:
         self._pair_needed = True
         self._state_callbacks=[] # store func to call on state received
         
+        self.lamp = None
+        self.delegate = None
+        self._conn_time = 0
 
     def __str__(self):
         mode_str = {self.MODE_COLOR:"Color", self.MODE_WHITE:"White", self.MODE_FLOW:"Flow"}
@@ -118,12 +123,6 @@ class Lamp:
           f"colortemp_{self._temperature}>"
         )
         return str_rep
-      
-    def _enable_notifications(self):
-        """Subscribe to the lamps notifications
-        0100 is the "enable bit"
-        """
-        self.lamp.writeCharacteristic(self._handle_notif+1, b'\x01\x00')
 
     def _get_handles(self):
         """ Get the notify and control handles from the UUID
@@ -153,21 +152,24 @@ class Lamp:
         self.lamp = YeelightPeripheral()
         self.delegate = YeelightDelegate(self)
 
-        # Catch if the lamp does not respond instead of crashing the whole script
-        #try:
         self.lamp.connect(self._mac)
-        #except Exception:
-            #_LOGGER.error("Could not connect to the Lamp")
-            #return False
 
         self.lamp.withDelegate(self.delegate)
         self._get_handles()
+        self.enable_notifications()
+        self.pair()
+        self._conn_time = time.time() #num seconds since epoch
         return True
 
     def disconnect(self):
         """Disconnect from the lamp
         Cleanup properly the bluepy's Peripheral and the Notification's Delegate to avoid weird issues
         """
+        self._mode = None # lamp not available
+        # call callback as there is a change in state=not available
+        for func in self._state_callbacks:
+            func()
+
         try:
             self.lamp.disconnect()
         except Exception:
@@ -175,28 +177,51 @@ class Lamp:
         del self.lamp
         del self.delegate
 
+
+    def enable_notifications(self):
+        """ enable notifications, 0100 is the "enable bit" """
+        self.writeCharacteristic(self._handle_notif+1, b'\x01\x00')
+
     def pair(self):
       """ Send the pairing request to the lamp
       Needed to be able to send control command
       """
       bits=struct.pack("BBB15x",COMMAND_STX, CMD_PAIR, CMD_PAIR_ON)
-      self.lamp.writeCharacteristic(self._handle_control, bits)
-      self.lamp.waitForNotifications(1) # error bluepy.btle.BTLEDisconnectError raised now if could not write byte
+      self.writeCharacteristic(self._handle_control, bits, wait_notif=0.5)
+      # self.lamp.waitForNotifications(0.5) # error bluepy.btle.BTLEDisconnectError raised now if could not write byte
+
+    def writeCharacteristic(self, handle, bits, withResponse=False, wait_notif:float=0):
+      mtries=3
+      while mtries > 0:
+          try:
+              _LOGGER.debug(f"Writing  0x{bits.hex()} on handle {handle}")
+              self.lamp.writeCharacteristic(handle,bits,withResponse)
+              if wait_notif > 0:
+                self.lamp.waitForNotifications(wait_notif)
+              return True
+          except Exception as e:
+              msg = f"Could not write to lamp: error{e.__class__}({str(e)})"
+              if mtries>1:
+                msg +=f", Retrying now..."
+                _LOGGER.warning(msg)
+                self.disconnect()
+                self.connect()
+                mtries -= 1
+              else:
+                _LOGGER.error(msg)
+                return False
       
     def send_cmd(self, bits, req_response=False, wait_notif:float=1):
-        if not self.connect():
-          return False
-        if wait_notif >0:
-          # enable notifications
-          self.lamp.writeCharacteristic(self._handle_notif+1, b'\x01\x00')
-        if self._pair_needed: # need to pair
-          self.pair()
-        self.lamp.writeCharacteristic(self._handle_control, bits, True) # req_response)
+        
         if wait_notif == 0:
           wait_notif = 0.1 # (Allows to catch errors in writting)
-        self.lamp.waitForNotifications(wait_notif)
-        self.disconnect()
-        return True
+        ret = self.writeCharacteristic(self._handle_control, bits, True, wait_notif=wait_notif) # req_response)
+
+        if ret and (time.time() - self._conn_time > 60*30):
+          _LOGGER.debug("Timed passed - reconnecting...")
+          self.disconnect()
+          self.connect()
+        return ret
             
             
     @property
@@ -385,9 +410,27 @@ class YeelightDelegate(bluepy.btle.DefaultDelegate):
         
 class YeelightPeripheral(bluepy.btle.Peripheral):
     """Overwrite of the Bluepy 'Peripheral' class.
-    It overwrites only the default writeCharacteristic() method
+    It overwrites the default writeCharacteristic() method
+    It overwrite the default to _getResp() correct bug waiting for notifications
     """
 
-    def writeCharacteristic(self, handle, val, withResponse=False):
-      _LOGGER.debug(f"Writing  0x{val.hex()} on handle {handle}")
-      super().writeCharacteristic(handle,val,withResponse)
+  # PR348: https://github.com/IanHarvey/bluepy/pull/348
+  # TO BE REMOVED once pluepy release > 1.3.0
+    def _getResp(self, wantType, timeout=None):
+        if isinstance(wantType, list) is not True:
+            wantType = [wantType]
+
+        while True:
+            resp = self._waitResp(wantType + ['ntfy', 'ind'], timeout)
+            if resp is None:
+                return None
+
+            respType = resp['rsp'][0]
+            if respType == 'ntfy' or respType == 'ind':
+                hnd = resp['hnd'][0]
+                data = resp['d'][0]
+                if self.delegate is not None:
+                    self.delegate.handleNotification(hnd, data)
+            if respType not in wantType:
+                continue
+            return resp
