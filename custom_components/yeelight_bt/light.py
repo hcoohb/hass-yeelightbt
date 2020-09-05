@@ -20,6 +20,7 @@ from homeassistant.util.color import (
     color_temperature_to_rgb,
     color_hs_to_RGB)
 
+from .yeelightbt import Lamp
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_MAC): cv.string,
@@ -71,7 +72,9 @@ class YeelightBT(LightEntity):
         self._effect = 'none'
         self._available = False
 
-        self.__dev = None
+        _LOGGER.info(f"Initializing {self.name}, {self._mac}")
+        self._dev = Lamp(self._mac)
+        self._dev.add_callback_on_state_changed(self._status_cb)
 
     @property
     def device_info(self):
@@ -139,15 +142,6 @@ class YeelightBT(LightEntity):
     def supported_features(self):
         """Flag supported features."""
         return SUPPORT_YEELIGHTBT
-
-    @property
-    def _dev(self):
-        from .yeelightbt import Lamp
-        if not self.__dev:
-            _LOGGER.debug(f"Initializing {self.name}, {self._mac}")
-            self.__dev = Lamp(self._mac)
-            self.__dev.add_callback_on_state_changed(self._status_cb)
-        return self.__dev
 
     def _status_cb(self):
         _LOGGER.debug("Got state notification from the lamp")
