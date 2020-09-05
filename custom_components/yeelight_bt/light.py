@@ -75,6 +75,9 @@ class YeelightBT(LightEntity):
         _LOGGER.info(f"Initializing {self.name}, {self._mac}")
         self._dev = Lamp(self._mac)
         self._dev.add_callback_on_state_changed(self._status_cb)
+        self._prop_min_max = self._dev.get_prop_min_max()
+        self._min_mireds=kelvin_to_mired(self._prop_min_max["temperature"]["max"]) # reversed scale
+        self._max_mireds=kelvin_to_mired(self._prop_min_max["temperature"]["min"]) # reversed scale
 
     @property
     def device_info(self):
@@ -107,6 +110,16 @@ class YeelightBT(LightEntity):
     def name(self) -> str:
         """Return the name of the light if any."""
         return self._name
+
+    @property
+    def min_mireds(self):
+        """Return minimum supported color temperature."""
+        return self._min_mireds
+
+    @property
+    def max_mireds(self):
+        """Return minimum supported color temperature."""
+        return self._max_mireds
 
     @property
     def brightness(self) -> int:

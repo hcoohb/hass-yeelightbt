@@ -256,6 +256,12 @@ class Lamp:
     def color(self):
         return self._rgb
       
+    def get_prop_min_max(self):
+      return {
+        "brightness": {"min":0, "max":100},
+        "temperature": {"min":1700, "max":6500},
+        "color": {"min":0, "max":255},
+      }
     def get_state(self):
         """Request the state of the lamp (send back state through notif)
         """
