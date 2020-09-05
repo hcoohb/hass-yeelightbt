@@ -13,9 +13,6 @@ from functools import wraps
 # 3rd party imports
 import bluepy  # for BLE transmission
 
-# __all__ definition for __init__.py
-__all__ = ["Lamp", "discover_yeelight_lamps", "compute_brightness", "compute_transition_table",
-           "compute_color", "check_bounds", "YeelightDelegate", "YeelightPeripheral"]
 
 NOTIFY_UUID = "8f65073d-9f57-4aaa-afea-397d19d5bbeb"
 CONTROL_UUID = "aa7d3f34-2d4f-41e0-807f-52fbf8cf7443"
@@ -45,11 +42,10 @@ RES_GETTIME = 0x62
 _LOGGER = logging.getLogger(__name__)
 
 
-def retry(ExceptionToCheck, tries=3, delay=0.1, func_in_between=None):
-    """Retry calling the decorated function using an exponential backoff.
+def retry(ExceptionToCheck, tries=3, delay=0.1):
+    """Retry calling the decorated function.
 
-    :param ExceptionToCheck: the exception to check. may be a tuple of
-        exceptions to check
+    :param ExceptionToCheck: the exception to check. may be a tuple of exceptions to check
     :type ExceptionToCheck: Exception or tuple
     :param tries: number of times to try (not retry) before giving up
     :type tries: int
@@ -70,8 +66,6 @@ def retry(ExceptionToCheck, tries=3, delay=0.1, func_in_between=None):
                       msg +=f", Retrying in {mdelay} seconds..."
                       _LOGGER.warning(msg)
                       time.sleep(mdelay)
-                      if func_in_between is not None:
-                        func_in_between()
                       mtries -= 1
                     else:
                       _LOGGER.error(msg)
@@ -84,8 +78,8 @@ def retry(ExceptionToCheck, tries=3, delay=0.1, func_in_between=None):
 
 
 class Lamp:
-    """The class that represents an Yeelight lamp
-    An Lamp object describe a real world Yeelight lamp.
+    """The class that represents a Yeelight lamp
+    A Lamp object describe a real world Yeelight lamp.
     It is linked to an YeelightPeripheral object for BLE transmissions
     and an YeelightDelegate for BLE notifications handling.
     """
@@ -105,14 +99,15 @@ class Lamp:
         
         self._handle_notif = False
         self._handle_control = False
-        self._pair_needed = True
         self._state_callbacks=[] # store func to call on state received
         
         self.lamp = None
         self.delegate = None
         self._conn_time = 0
+        self._conn_max_time =60 # minutes before reconnection
 
     def __str__(self):
+        """ The string representation """
         mode_str = {self.MODE_COLOR:"Color", self.MODE_WHITE:"White", self.MODE_FLOW:"Flow"}
         str_rep = (
           f"<Lamp {self._mac} "
@@ -124,20 +119,8 @@ class Lamp:
         )
         return str_rep
 
-    def _get_handles(self):
-        """ Get the notify and control handles from the UUID
-        Only once for this Lamp instance
-        """
-        if not self._handle_notif:
-          notif_char = self.lamp.getCharacteristics(uuid=NOTIFY_UUID)
-          _LOGGER.debug(f"{len(notif_char)} Characteristics for notify service. 1st handle={notif_char[0].getHandle()}")
-          self._handle_notif = notif_char[0].getHandle()
-        if not self._handle_control:
-          ctrl_char = self.lamp.getCharacteristics(uuid=CONTROL_UUID)
-          _LOGGER.debug(f"{len(ctrl_char)} Characteristics for control service. 1st handle={ctrl_char[0].getHandle()}")
-          self._handle_control = ctrl_char[0].getHandle()
-        
-    def add_callback_on_state_received(self, func):
+    def add_callback_on_state_changed(self, func):
+      """ register callbacks to be called when lamp state is received or bt disconnected """
       self._state_callbacks.append(func)
 
     @retry(Exception, tries=3)
@@ -147,6 +130,8 @@ class Lamp:
         - Connect to the lamp
         - Add a delegate for notifications
         - Send the "enable bit" for notifications
+        - send pair signal
+        Tries 3 times if exceptions encountered...
         :return: True if the connection is successful, false otherwise
         """
         self.lamp = YeelightPeripheral()
@@ -158,7 +143,7 @@ class Lamp:
         self._get_handles()
         self.enable_notifications()
         self.pair()
-        self._conn_time = time.time() #num seconds since epoch
+        self._conn_time = time.time() #num seconds since 1970
         return True
 
     def disconnect(self):
@@ -177,6 +162,18 @@ class Lamp:
         del self.lamp
         del self.delegate
 
+    def _get_handles(self):
+        """ Get the notify and control handles from the UUID
+        Only once for this Lamp instance
+        """
+        if not self._handle_notif:
+          notif_char = self.lamp.getCharacteristics(uuid=NOTIFY_UUID)
+          _LOGGER.debug(f"{len(notif_char)} Characteristics for notify service. 1st handle={notif_char[0].getHandle()}")
+          self._handle_notif = notif_char[0].getHandle()
+        if not self._handle_control:
+          ctrl_char = self.lamp.getCharacteristics(uuid=CONTROL_UUID)
+          _LOGGER.debug(f"{len(ctrl_char)} Characteristics for control service. 1st handle={ctrl_char[0].getHandle()}")
+          self._handle_control = ctrl_char[0].getHandle()
 
     def enable_notifications(self):
         """ enable notifications, 0100 is the "enable bit" """
@@ -188,9 +185,14 @@ class Lamp:
       """
       bits=struct.pack("BBB15x",COMMAND_STX, CMD_PAIR, CMD_PAIR_ON)
       self.writeCharacteristic(self._handle_control, bits, wait_notif=0.5)
-      # self.lamp.waitForNotifications(0.5) # error bluepy.btle.BTLEDisconnectError raised now if could not write byte
 
     def writeCharacteristic(self, handle, bits, withResponse=False, wait_notif:float=0):
+      """ write characetristic to the lamp and wait for notification if defined.
+          In case excepion is raised: disconnect and reconnect bt lamp
+          Tries 3 times max
+          Return True if no exception has risen (does not 100% means we wrote on device...)
+          Return False if we could not write for sure 
+      """
       mtries=3
       while mtries > 0:
           try:
@@ -211,14 +213,16 @@ class Lamp:
                 _LOGGER.error(msg)
                 return False
       
-    def send_cmd(self, bits, req_response=False, wait_notif:float=1):
-        
+    def send_cmd(self, bits, withResponse=True, wait_notif:float=1):
+        """ Send a control command to the lamp, checking for response and waiting for notif
+        Check if connection is xx min old and reconnect if it is... Potentially fix some issues.
+        """
         if wait_notif == 0:
-          wait_notif = 0.1 # (Allows to catch errors in writting)
-        ret = self.writeCharacteristic(self._handle_control, bits, True, wait_notif=wait_notif) # req_response)
+          wait_notif = 0.1 # (Allows to catch errors during writting)
+        ret = self.writeCharacteristic(self._handle_control, bits, withResponse, wait_notif)
 
-        if ret and (time.time() - self._conn_time > 60*30):
-          _LOGGER.debug("Timed passed - reconnecting...")
+        if ret and (time.time() - self._conn_time > 60*self._conn_max_time):
+          _LOGGER.debug(f"Connection is {self._conn_max_time}min old - reconnecting...")
           self.disconnect()
           self.connect()
         return ret
@@ -253,9 +257,7 @@ class Lamp:
         return self._rgb
       
     def get_state(self):
-        """Get and return the state of the lamp
-        No need to pair to get state
-        :returns: ...
+        """Request the state of the lamp (send back state through notif)
         """
         _LOGGER.debug("Get_state")
         bits=struct.pack("BBB15x",COMMAND_STX,CMD_GETSTATE,CMD_GETSTATE_SEC)
@@ -263,70 +265,71 @@ class Lamp:
             
             
     def turn_on(self):
-        """Turn the lamp on """
+        """Turn the lamp on. (send back state through notif) """
         _LOGGER.debug("Turn_on")
         bits=struct.pack("BBB15x",COMMAND_STX,CMD_POWER,CMD_POWER_ON)
-        self._pair_needed= True #ask for pairing when toogling light
-        self.send_cmd(bits)
-        # tiggers state notification
+        return self.send_cmd(bits)
             
     def turn_off(self):
-        """Turn the lamp off """
+        """Turn the lamp off. (send back state through notif) """
         _LOGGER.debug("Turn_off")
         bits=struct.pack("BBB15x",COMMAND_STX,CMD_POWER, CMD_POWER_OFF)
-        self._pair_needed= True #ask for pairing when toogling light
-        self.send_cmd(bits)
-        # tiggers state notification
+        return self.send_cmd(bits)
             
     def set_brightness(self, brightness:int):
-      """ Set the brightness [1-100] """
+      """ Set the brightness [1-100] (no notif)"""
       brightness = min(100, max( 0, int(brightness)))
       _LOGGER.debug(f"Set_brightness {brightness}")
       bits=struct.pack("BBB15x",COMMAND_STX,CMD_BRIGHTNESS, brightness)
-      self._pair_needed= True
-      self.send_cmd(bits, wait_notif=0)
-      self._brightness = brightness
+      ret = self.send_cmd(bits, wait_notif=0)
+      if ret:
+        self._brightness = brightness
+      return ret
       
     def set_temperature(self, kelvin:int, brightness:int=None):
-      """ Set the temperature (White mode) [1700 - 6500 K] """
+      """ Set the temperature (White mode) [1700 - 6500 K] (no notif)"""
       if brightness is None:
         brightness =self.brightness
       kelvin = min(6500, max( 1700, int(kelvin)))
       _LOGGER.debug(f"Set_temperature {kelvin}, {brightness}")
       bits=struct.pack(">BBhB13x",COMMAND_STX,CMD_TEMP,kelvin,brightness)
-      self._pair_needed= True
-      self.send_cmd(bits, wait_notif=0)
-      self._temperature=kelvin
-      self._brightness = brightness
+      ret = self.send_cmd(bits, wait_notif=0)
+      if ret:
+        self._temperature=kelvin
+        self._brightness = brightness
+        self._mode = self.MODE_WHITE
+      return ret
       
     def set_color(self, red:int, green:int, blue:int, brightness:int=None):
-      """ Set the color of the lamp """
+      """ Set the color of the lamp [0-255] (no notif)"""
       if brightness is None:
         brightness =self.brightness
       _LOGGER.debug(f"Set_color {(red, green, blue)}, {brightness}")
       bits=struct.pack("BBBBBBB11x",COMMAND_STX,CMD_RGB,red,green,blue,0x01,brightness)
-      self._pair_needed= True
-      self.send_cmd(bits, wait_notif=0)
-      self._rgb=(red,green,blue)
-      self._brightness = brightness
+      ret = self.send_cmd(bits, wait_notif=0)
+      if ret:
+        self._rgb=(red,green,blue)
+        self._brightness = brightness
+        self._mode = self.MODE_COLOR
+      return ret
     
     def get_name(self):
-      """ Get the name from the lamp """
+      """ Get the name from the lamp (through notif)"""
       _LOGGER.debug("Get_name")
       bits=struct.pack("BB16x",COMMAND_STX, CMD_GETNAME)
-      self.send_cmd(bits)
+      return self.send_cmd(bits)
     
     def get_version(self):
-      """ Get the versions from the lamp """
+      """ Get the versions from the lamp (through notif) """
       _LOGGER.debug("Get_version")
       bits=struct.pack("BB16x",COMMAND_STX, CMD_GETVER)
-      self.send_cmd(bits)
+      return self.send_cmd(bits)
       
     def get_serial(self):
-      """ Get the serial from the lamp """
+      """ Get the serial from the lamp (through notif) """
       _LOGGER.debug("Get_serial")
       bits=struct.pack("BB16x",COMMAND_STX, CMD_GETSERIAL)
-      self.send_cmd(bits)
+      return self.send_cmd(bits)
     
     def _process_notification(self, cHandle, data):
         """Method called when a notification is send from the lamp
@@ -352,11 +355,10 @@ class Lamp:
           
         if res_type == RES_PAIR: # pairing result
           pair_mode = struct.unpack("xxB15x",data)[0]
-          if pair_mode == 0x04:
-            self._pair_needed= False # we have successfully paired
-          else:
-            self._pair_needed=True
-            _LOGGER.error("The pairing request returned unexpected results. Pair on next CMD")
+          if pair_mode != 0x04:
+            # we do NOT have successfully paired
+            _LOGGER.error("The pairing request returned unexpected results. retry")
+            self.disconnect()
             
         if res_type == RES_GETVER: 
           self.versions = struct.unpack("Bhhhh8x",data)
@@ -410,7 +412,6 @@ class YeelightDelegate(bluepy.btle.DefaultDelegate):
         
 class YeelightPeripheral(bluepy.btle.Peripheral):
     """Overwrite of the Bluepy 'Peripheral' class.
-    It overwrites the default writeCharacteristic() method
     It overwrite the default to _getResp() correct bug waiting for notifications
     """
 

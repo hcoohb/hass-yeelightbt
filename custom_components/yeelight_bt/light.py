@@ -146,7 +146,7 @@ class YeelightBT(LightEntity):
         if not self.__dev:
             _LOGGER.debug(f"Initializing {self.name}, {self._mac}")
             self.__dev = Lamp(self._mac)
-            self.__dev.add_callback_on_state_received(self._status_cb)
+            self.__dev.add_callback_on_state_changed(self._status_cb)
         return self.__dev
 
     def _status_cb(self):
