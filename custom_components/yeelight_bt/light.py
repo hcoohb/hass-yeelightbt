@@ -168,7 +168,7 @@ class YeelightBT(LightEntity):
             self.schedule_update_ha_state()
             return
 
-        self._brightness = int(255.0 * self._dev.brightness / 100)
+        self._brightness = int(round(255.0 * self._dev.brightness / 100))
         self._is_on = self._dev.is_on
         if self._dev.mode == self._dev.MODE_WHITE:
             self._ct = int(kelvin_to_mired(int(self._dev.temperature)))
@@ -203,18 +203,18 @@ class YeelightBT(LightEntity):
             rgb = color_hs_to_RGB(*kwargs.get(ATTR_HS_COLOR))
             self._rgb = rgb
             _LOGGER.debug(f"Trying to set color RGB: {rgb}")
-            self._dev.set_color(rgb[0], rgb[1], rgb[2], int(self._brightness * 1.0 / 255 * 100))
+            self._dev.set_color(*rgb, int(round(self._brightness * 1.0 / 255 * 100)))
 
         if ATTR_COLOR_TEMP in kwargs:
             mireds = kwargs[ATTR_COLOR_TEMP]
             temp_in_k = int(mired_to_kelvin(mireds))
             _LOGGER.debug(f"Trying to set temp: {temp_in_k}")
-            self._dev.set_temperature(temp_in_k,int(self._brightness * 1.0 / 255 * 100))
+            self._dev.set_temperature(temp_in_k,int(round(self._brightness * 1.0 / 255 * 100)))
             self._ct = mireds
 
         if ATTR_BRIGHTNESS in kwargs:
             brightness = kwargs[ATTR_BRIGHTNESS]
-            brightness_dev = int(brightness*1.0 / 255 * 100)
+            brightness_dev = int(round(brightness*1.0 / 255 * 100))
             _LOGGER.debug(f"Trying to set brightness: {brightness_dev}")
             self._dev.set_brightness(brightness_dev)
             self._brightness = brightness
