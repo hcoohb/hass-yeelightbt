@@ -163,7 +163,7 @@ class YeelightBT(LightEntity):
             self.schedule_update_ha_state()
             return
 
-        self._brightness = 255 * (int(self._dev.brightness) / 100)
+        self._brightness = int(255.0 * self._dev.brightness / 100)
         self._is_on = self._dev.is_on
         if self._dev.mode == self._dev.MODE_WHITE:
             self._ct = int(kelvin_to_mired(int(self._dev.temperature)))
@@ -209,7 +209,7 @@ class YeelightBT(LightEntity):
         if ATTR_BRIGHTNESS in kwargs:
             brightness = kwargs[ATTR_BRIGHTNESS]
             _LOGGER.debug("Trying to set brightness: %i",int(brightness / 255 * 100))
-            self._dev.set_brightness(int(brightness / 255 * 100))
+            self._dev.set_brightness(int(brightness*1.0 / 255 * 100))
             self._brightness = brightness
 
         # if we are just started without parameters, turn on.
