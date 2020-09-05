@@ -18,7 +18,7 @@ from homeassistant.util.color import (
     color_temperature_mired_to_kelvin as mired_to_kelvin,
     color_temperature_kelvin_to_mired as kelvin_to_mired,
     color_temperature_to_rgb,
-    color_hs_to_RGB)
+    color_hs_to_RGB, color_RGB_to_hs)
 
 from .yeelightbt import Lamp
 
@@ -127,9 +127,14 @@ class YeelightBT(LightEntity):
         return self._brightness
 
     @property
-    def rgb_color(self):
-        """Return the RBG color value."""
-        return self._rgb
+    def hs_color(self):
+        """
+        Return the Hue and saturation color value.
+        Lamp has rgb => we calculate hs 
+        """
+        if self._rgb is None:
+            return None
+        return color_RGB_to_hs(*self._rgb)
 
     @property
     def color_temp(self) -> int:
@@ -167,10 +172,9 @@ class YeelightBT(LightEntity):
         self._is_on = self._dev.is_on
         if self._dev.mode == self._dev.MODE_WHITE:
             self._ct = int(kelvin_to_mired(int(self._dev.temperature)))
-            # when in white mode, rgb is not set so we calculate it ourselves
-            self._rgb = color_temperature_to_rgb(self._dev.temperature)
+            self._rgb = (0,0,0)
         else:
-            self._ct = 0
+            self._ct = None
             self._rgb = self._dev.color
 
         # _LOGGER.debug("available: %s, state: %s, mode: %s, bright: %s, rgb: %s, ct: %s",
