@@ -282,12 +282,17 @@ class Lamp:
         bits=struct.pack("BBB15x",COMMAND_STX,CMD_POWER, CMD_POWER_OFF)
         return self.send_cmd(bits)
             
+    # set_brightness/temperature/color do NOT send a notification back.
+    # However, the lamp takes time to transition to new state
+    # and if another command (including get_state) is sent during that time,
+    # it stops the transition where it is... 
+    # HA sends get_state straight away, so better put a little timer after sending
     def set_brightness(self, brightness:int):
       """ Set the brightness [1-100] (no notif)"""
       brightness = min(100, max( 0, int(brightness)))
       _LOGGER.debug(f"Set_brightness {brightness}")
       bits=struct.pack("BBB15x",COMMAND_STX,CMD_BRIGHTNESS, brightness)
-      ret = self.send_cmd(bits, wait_notif=0)
+      ret = self.send_cmd(bits, wait_notif=0.5)
       if ret:
         self._brightness = brightness
       return ret
@@ -299,7 +304,7 @@ class Lamp:
       kelvin = min(6500, max( 1700, int(kelvin)))
       _LOGGER.debug(f"Set_temperature {kelvin}, {brightness}")
       bits=struct.pack(">BBhB13x",COMMAND_STX,CMD_TEMP,kelvin,brightness)
-      ret = self.send_cmd(bits, wait_notif=0)
+      ret = self.send_cmd(bits, wait_notif=0.5)
       if ret:
         self._temperature=kelvin
         self._brightness = brightness
@@ -312,7 +317,7 @@ class Lamp:
         brightness =self.brightness
       _LOGGER.debug(f"Set_color {(red, green, blue)}, {brightness}")
       bits=struct.pack("BBBBBBB11x",COMMAND_STX,CMD_RGB,red,green,blue,0x01,brightness)
-      ret = self.send_cmd(bits, wait_notif=0)
+      ret = self.send_cmd(bits, wait_notif=0.5)
       if ret:
         self._rgb=(red,green,blue)
         self._brightness = brightness
