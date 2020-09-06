@@ -1,6 +1,8 @@
 """ light platform """
 
 import logging
+import time
+
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.const import CONF_NAME, CONF_MAC
@@ -206,6 +208,7 @@ class YeelightBT(LightEntity):
         # ATTR can be set while light is off, so turn it on first:
         if not self._is_on:
             self._dev.turn_on()
+            time.sleep(0.3)
         self._is_on = True
 
         if ATTR_HS_COLOR in kwargs:
