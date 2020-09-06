@@ -107,6 +107,7 @@ class Lamp:
         self._conn_time = 0
         self._conn_max_time = 60  # minutes before reconnection
         self._write_time = 0
+        self._paired = True
 
     def __str__(self):
         """ The string representation """
@@ -170,6 +171,7 @@ class Lamp:
             pass
         del self.lamp
         del self.delegate
+        self.lamp = None
 
     def _get_handles(self):
         """Get the notify and control handles from the UUID
@@ -240,14 +242,14 @@ class Lamp:
         the transition has finished before the new command.
         Check if connection is xx min old and reconnect... Seems to fix some issues.
         """
-        if self.lamp is None:
-            self.connect()
 
         # if last command less than xx, we wait
         sec_since_write = time.time() - self._write_time
         if sec_since_write < 0.4:
             _LOGGER.debug("WAITING before next command")
             time.sleep(0.4 - sec_since_write)  # allow lamp transition to finish
+        if self.lamp is None:
+            self.connect()
         ret = self.writeCharacteristic(
             self._handle_control, bits, withResponse, wait_notif
         )
@@ -388,7 +390,7 @@ class Lamp:
         if res_type == RES_GETSTATE:  # state result
             state = struct.unpack(">xxBBBBBBBhx6x", data)
             self._is_on = state[0] == CMD_POWER_ON
-            self._mode = state[1]
+            self._mode = state[1] if self._paired else None
             self._rgb = (state[2], state[3], state[4])  # , state[5])
             self._brightness = state[6]
             self._temperature = state[7]
@@ -398,11 +400,28 @@ class Lamp:
                 func()
 
         if res_type == RES_PAIR:  # pairing result
+            self._paired = False
             pair_mode = struct.unpack("xxB15x", data)[0]
-            if pair_mode != 0x04:
-                # we do NOT have successfully paired
-                _LOGGER.error("The pairing request returned unexpected results. retry")
+            if pair_mode == 0x01:  # The lamp is requesting pairing. push small button!
+                _LOGGER.error(
+                    "Yeelight pairing request: Push the little button of the lamp now!"
+                )
+                self._mode = None  # unavailable in HA for now
+            if pair_mode == 0x02:
+                _LOGGER.debug("Yeelight pairing was successful!")
+                self._paired = True
+            if pair_mode == 0x03:
+                _LOGGER.error("Yeelight is not paired! Restart the process to pair")
+                self._mode = None  # unavailable in HA
+            if pair_mode == 0x04:
+                _LOGGER.debug("Yeelight is already paired")
+                self._paired = True
+            if pair_mode == 0x06 or pair_mode == 0x07:
+                _LOGGER.error(
+                    "The pairing request returned unexpected results. Reconnecting"
+                )
                 self.disconnect()
+                self.connect()
 
         if res_type == RES_GETVER:
             self.versions = struct.unpack("Bhhhh8x", data)
