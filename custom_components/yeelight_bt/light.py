@@ -194,6 +194,15 @@ class YeelightBT(LightEntity):
     def turn_on(self, **kwargs):
         """Turn the light on."""
         _LOGGER.debug(f"Trying to turn on. with ATTR:{kwargs}")
+
+        # First if brightness of dev to 0: turn off
+        if ATTR_BRIGHTNESS in kwargs:
+            brightness_dev = int(round(kwargs[ATTR_BRIGHTNESS]*1.0 / 255 * 100))
+            if brightness_dev ==0:
+                _LOGGER.debug("Lamp brightness to be set to 0... so turning off")
+                self.turn_off()
+                return
+
         # ATTR can be set while light is off, so turn it on first:
         if not self._is_on:
             self._dev.turn_on()
