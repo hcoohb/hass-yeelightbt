@@ -8,15 +8,14 @@ from homeassistant.helpers import device_registry as dr, config_validation as cv
 from .const import DOMAIN
 
 
-
 _LOGGER = logging.getLogger(__name__)
+
 
 class SimpleConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for yeelight_bt."""
 
     VERSION = 1
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
-
 
     @property
     def data_schema(self):
@@ -28,23 +27,19 @@ class SimpleConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }
         )
 
-
     async def async_step_user(self, user_input=None):
         """Handle the initial step."""
         errors = {}
         _LOGGER.debug(f"User_input: {user_input}")
         if not user_input:
             return self.async_show_form(step_id="user", data_schema=self.data_schema)
-            
+
         unique_id = dr.format_mac(user_input[CONF_MAC])
         _LOGGER.debug(f"UniqueID: {unique_id}")
 
         await self.async_set_unique_id(unique_id)
         self._abort_if_unique_id_configured()
-        
-        
-        
-        
+
         # try:
         #     #Check if we can connect to the lamp here
         #     await client.cdc_reports.status_by_coordinates(

@@ -11,29 +11,42 @@ from homeassistant.components.light import ENTITY_ID_FORMAT
 from homeassistant.helpers.entity import generate_entity_id
 
 from homeassistant.components.light import (
-    ATTR_BRIGHTNESS, ATTR_COLOR_TEMP, ATTR_EFFECT,
-    ATTR_RGB_COLOR, SUPPORT_BRIGHTNESS,ATTR_HS_COLOR,
-    SUPPORT_COLOR_TEMP, SUPPORT_EFFECT, SUPPORT_COLOR,
-    LightEntity, PLATFORM_SCHEMA)
+    ATTR_BRIGHTNESS,
+    ATTR_COLOR_TEMP,
+    ATTR_HS_COLOR,
+    # ATTR_EFFECT,
+    SUPPORT_BRIGHTNESS,
+    SUPPORT_COLOR_TEMP,
+    SUPPORT_COLOR,
+    # SUPPORT_EFFECT,
+    LightEntity,
+    PLATFORM_SCHEMA,
+)
 
 from homeassistant.util.color import (
     color_temperature_mired_to_kelvin as mired_to_kelvin,
     color_temperature_kelvin_to_mired as kelvin_to_mired,
-    color_temperature_to_rgb,
-    color_hs_to_RGB, color_RGB_to_hs)
+    color_hs_to_RGB,
+    color_RGB_to_hs,
+)
 
 from .yeelightbt import Lamp
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-    vol.Required(CONF_MAC): cv.string,
-    vol.Optional(CONF_NAME, default=DOMAIN): cv.string,
-})
+PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
+    {
+        vol.Required(CONF_MAC): cv.string,
+        vol.Optional(CONF_NAME, default=DOMAIN): cv.string,
+    }
+)
 
-LIGHT_EFFECT_LIST = ['flow', 'none']
+LIGHT_EFFECT_LIST = ["flow", "none"]
 
-SUPPORT_YEELIGHTBT = (SUPPORT_BRIGHTNESS | SUPPORT_COLOR_TEMP |
-                      # SUPPORT_EFFECT |
-                      SUPPORT_COLOR)
+SUPPORT_YEELIGHTBT = (
+    SUPPORT_BRIGHTNESS
+    | SUPPORT_COLOR_TEMP
+    | SUPPORT_COLOR
+    # | SUPPORT_EFFECT
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,15 +57,18 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     name = config[CONF_NAME]
 
     if discovery_info is not None:
-        _LOGGER.debug("Adding autodetected %s", discovery_info['hostname'])
-        name=DOMAIN
+        _LOGGER.debug("Adding autodetected %s", discovery_info["hostname"])
+        name = DOMAIN
     _LOGGER.debug(f"Adding light {name} with mac:{mac}")
     add_entities([YeelightBT(name, mac)])
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up the platform from config_entry."""
-    _LOGGER.debug(f"async_setup_entry:setting up the config entry {config_entry.title} with data:{config_entry.data}")
+    _LOGGER.debug(
+        f"async_setup_entry:setting up the config entry {config_entry.title} "
+        f"with data:{config_entry.data}"
+    )
     name = config_entry.data.get(CONF_NAME) or DOMAIN
     mac = config_entry.data.get(CONF_MAC)
     async_add_entities([YeelightBT(name, mac)])
@@ -71,15 +87,19 @@ class YeelightBT(LightEntity):
         self._ct = None
         self._brightness = None
         self._effect_list = LIGHT_EFFECT_LIST
-        self._effect = 'none'
+        self._effect = "none"
         self._available = False
-        
+
         _LOGGER.info(f"Initializing {self.name}, {self._mac}")
         self._dev = Lamp(self._mac)
         self._dev.add_callback_on_state_changed(self._status_cb)
         self._prop_min_max = self._dev.get_prop_min_max()
-        self._min_mireds=kelvin_to_mired(self._prop_min_max["temperature"]["max"]) # reversed scale
-        self._max_mireds=kelvin_to_mired(self._prop_min_max["temperature"]["min"]) # reversed scale
+        self._min_mireds = kelvin_to_mired(
+            self._prop_min_max["temperature"]["max"]
+        )  # reversed scale
+        self._max_mireds = kelvin_to_mired(
+            self._prop_min_max["temperature"]["min"]
+        )  # reversed scale
 
     @property
     def device_info(self):
@@ -132,7 +152,7 @@ class YeelightBT(LightEntity):
     def hs_color(self):
         """
         Return the Hue and saturation color value.
-        Lamp has rgb => we calculate hs 
+        Lamp has rgb => we calculate hs
         """
         if self._rgb is None:
             return None
@@ -174,14 +194,11 @@ class YeelightBT(LightEntity):
         self._is_on = self._dev.is_on
         if self._dev.mode == self._dev.MODE_WHITE:
             self._ct = int(kelvin_to_mired(int(self._dev.temperature)))
-            self._rgb = (0,0,0)
+            self._rgb = (0, 0, 0)
         else:
             self._ct = None
             self._rgb = self._dev.color
 
-        # _LOGGER.debug("available: %s, state: %s, mode: %s, bright: %s, rgb: %s, ct: %s",
-        #               self._available, self._is_on, self._dev.mode, self._brightness, self._rgb, self._ct)
-    
         self.schedule_update_ha_state()
 
     def update(self):
@@ -189,7 +206,7 @@ class YeelightBT(LightEntity):
         # followed by asynchronous updates through notifications.
         try:
             _LOGGER.debug("Requesting an update of the lamp status")
-            self._dev.get_state() #blocking...
+            self._dev.get_state()  # blocking...
         except Exception as ex:
             _LOGGER.error(f"Fail requesting the light status. Got exception: {ex}")
 
@@ -199,8 +216,8 @@ class YeelightBT(LightEntity):
 
         # First if brightness of dev to 0: turn off
         if ATTR_BRIGHTNESS in kwargs:
-            brightness_dev = int(round(kwargs[ATTR_BRIGHTNESS]*1.0 / 255 * 100))
-            if brightness_dev ==0:
+            brightness_dev = int(round(kwargs[ATTR_BRIGHTNESS] * 1.0 / 255 * 100))
+            if brightness_dev == 0:
                 _LOGGER.debug("Lamp brightness to be set to 0... so turning off")
                 self.turn_off()
                 return
@@ -221,12 +238,14 @@ class YeelightBT(LightEntity):
             mireds = kwargs[ATTR_COLOR_TEMP]
             temp_in_k = int(mired_to_kelvin(mireds))
             _LOGGER.debug(f"Trying to set temp: {temp_in_k}")
-            self._dev.set_temperature(temp_in_k,int(round(self._brightness * 1.0 / 255 * 100)))
+            self._dev.set_temperature(
+                temp_in_k, int(round(self._brightness * 1.0 / 255 * 100))
+            )
             self._ct = mireds
 
         if ATTR_BRIGHTNESS in kwargs:
             brightness = kwargs[ATTR_BRIGHTNESS]
-            brightness_dev = int(round(brightness*1.0 / 255 * 100))
+            brightness_dev = int(round(brightness * 1.0 / 255 * 100))
             _LOGGER.debug(f"Trying to set brightness: {brightness_dev}")
             self._dev.set_brightness(brightness_dev)
             self._brightness = brightness
@@ -236,6 +255,6 @@ class YeelightBT(LightEntity):
 
     def turn_off(self, **kwargs):
         """Turn the light off."""
-        
+
         self._dev.turn_off()
         self._is_on = False
