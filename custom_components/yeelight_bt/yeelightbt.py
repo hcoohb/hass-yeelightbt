@@ -223,6 +223,8 @@ class Lamp:
         the transition has finished before the new command.
         Check if connection is xx min old and reconnect if it is... Potentially fix some issues.
         """
+        if self.lamp is None:
+          self.connect()
 
         # if last command less than xx, we wait
         sec_since_write = time.time() - self._write_time
