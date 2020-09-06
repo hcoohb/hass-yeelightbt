@@ -66,3 +66,6 @@ The light is automatically added and a device is created.
 - [x] Add component to HACS for easy install
 - [x] Allow configuration through the integration UI
 - [ ] Enable discovery of lamps in UI? (Not sure if possible)
+- [ ] Look into setting up effect and flow (low priority)
+- [ ] Allow pairing process with new device
+- [ ] Support for candela light? (I do not have a device, so might need help from someone with one...)
