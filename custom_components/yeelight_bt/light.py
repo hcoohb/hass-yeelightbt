@@ -193,7 +193,8 @@ class YeelightBT(LightEntity):
         self._brightness = int(round(255.0 * self._dev.brightness / 100))
         self._is_on = self._dev.is_on
         if self._dev.mode == self._dev.MODE_WHITE:
-            self._ct = int(kelvin_to_mired(int(self._dev.temperature)))
+            temp_in_k = int(self.scale_temp_reversed(self._dev.temperature))
+            self._ct = int(kelvin_to_mired(temp_in_k))
             self._rgb = (0, 0, 0)
         else:
             self._ct = None
@@ -237,10 +238,10 @@ class YeelightBT(LightEntity):
         if ATTR_COLOR_TEMP in kwargs:
             mireds = kwargs[ATTR_COLOR_TEMP]
             temp_in_k = int(mired_to_kelvin(mireds))
-            _LOGGER.debug(f"Trying to set temp: {temp_in_k}")
-            self._dev.set_temperature(
-                temp_in_k, int(round(self._brightness * 1.0 / 255 * 100))
-            )
+            scaled_temp_in_k = self.scale_temp(temp_in_k)
+            _LOGGER.debug(f"Trying to set temp: {scaled_temp_in_k}")
+            brightness_dev = int(round(self._brightness * 1.0 / 255 * 100))
+            self._dev.set_temperature(scaled_temp_in_k, brightness_dev)
             self._ct = mireds
 
         if ATTR_BRIGHTNESS in kwargs:
@@ -258,3 +259,30 @@ class YeelightBT(LightEntity):
 
         self._dev.turn_off()
         self._is_on = False
+
+    def scale_temp(self, temp):
+        """Scale the temperature so that the white in HA UI correspond to the
+        white on the lamp!"""
+        a = self._prop_min_max["temperature"]["min"]
+        b = self._prop_min_max["temperature"]["max"]
+        mid = 2740  # the temp HA wants to set at when cliking on white in UI
+        white = 4080  # the temp that correspond to true white on the lamp
+
+        if temp < mid:
+            new_temp = (white - a) / (mid - a) * temp + a * (mid - white) / (mid - a)
+        else:
+            new_temp = (b - white) / (b - mid) * temp + b * (white - mid) / (b - mid)
+        return round(new_temp)
+
+    def scale_temp_reversed(self, temp):
+        """ Reverse the scale to match HA UI """
+        a = self._prop_min_max["temperature"]["min"]
+        b = self._prop_min_max["temperature"]["max"]
+        mid = 2740
+        white = 4080
+
+        if temp < white:
+            new_temp = (mid - a) / (white - a) * temp - a * (mid - white) / (white - a)
+        else:
+            new_temp = (b - mid) / (b - white) * temp - b * (white - mid) / (b - white)
+        return round(new_temp)
