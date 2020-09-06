@@ -105,6 +105,7 @@ class Lamp:
         self.delegate = None
         self._conn_time = 0
         self._conn_max_time =60 # minutes before reconnection
+        self._write_time = 0
 
     def __str__(self):
         """ The string representation """
@@ -188,16 +189,18 @@ class Lamp:
 
     def writeCharacteristic(self, handle, bits, withResponse=False, wait_notif:float=0):
       """ write characetristic to the lamp and wait for notification if defined.
-          In case excepion is raised: disconnect and reconnect bt lamp
-          Tries 3 times max
-          Return True if no exception has risen (does not 100% means we wrote on device...)
-          Return False if we could not write for sure 
+      In case excepion is raised: disconnect and reconnect bt lamp. Tries 3 times max.
+
+      Return True if no exception has risen (does not 100% means we wrote on device...)
+      Return False if we could not write for sure 
       """
       mtries=3
       while mtries > 0:
           try:
               _LOGGER.debug(f"Writing  0x{bits.hex()} on handle {handle}")
               self.lamp.writeCharacteristic(handle,bits,withResponse)
+              self.lamp.waitForNotifications(0.05) # (catch errors during writting)
+              self._write_time = time.time()
               if wait_notif > 0:
                 self.lamp.waitForNotifications(wait_notif)
               return True
@@ -214,11 +217,18 @@ class Lamp:
                 return False
       
     def send_cmd(self, bits, withResponse=True, wait_notif:float=1):
-        """ Send a control command to the lamp, checking for response and waiting for notif
+        """ Send a control command to the lamp, checking for response and waiting for notif.
+        The lamp takes some time to transition to new state. If another command is
+        received during that time it stops the transition. So we place a timer to ensure
+        the transition has finished before the new command.
         Check if connection is xx min old and reconnect if it is... Potentially fix some issues.
         """
-        if wait_notif == 0:
-          wait_notif = 0.1 # (Allows to catch errors during writting)
+
+        # if last command less than xx, we wait
+        sec_since_write = time.time() - self._write_time
+        if sec_since_write < 0.4:
+          _LOGGER.debug("WAITING before next command")
+          time.sleep(0.4 -sec_since_write) #allow lamp transition to finish
         ret = self.writeCharacteristic(self._handle_control, bits, withResponse, wait_notif)
 
         if ret and (time.time() - self._conn_time > 60*self._conn_max_time):
@@ -292,7 +302,7 @@ class Lamp:
       brightness = min(100, max( 0, int(brightness)))
       _LOGGER.debug(f"Set_brightness {brightness}")
       bits=struct.pack("BBB15x",COMMAND_STX,CMD_BRIGHTNESS, brightness)
-      ret = self.send_cmd(bits, wait_notif=0.5)
+      ret = self.send_cmd(bits, wait_notif=0)
       if ret:
         self._brightness = brightness
       return ret
@@ -304,7 +314,7 @@ class Lamp:
       kelvin = min(6500, max( 1700, int(kelvin)))
       _LOGGER.debug(f"Set_temperature {kelvin}, {brightness}")
       bits=struct.pack(">BBhB13x",COMMAND_STX,CMD_TEMP,kelvin,brightness)
-      ret = self.send_cmd(bits, wait_notif=0.5)
+      ret = self.send_cmd(bits, wait_notif=0)
       if ret:
         self._temperature=kelvin
         self._brightness = brightness
@@ -317,7 +327,7 @@ class Lamp:
         brightness =self.brightness
       _LOGGER.debug(f"Set_color {(red, green, blue)}, {brightness}")
       bits=struct.pack("BBBBBBB11x",COMMAND_STX,CMD_RGB,red,green,blue,0x01,brightness)
-      ret = self.send_cmd(bits, wait_notif=0.5)
+      ret = self.send_cmd(bits, wait_notif=0)
       if ret:
         self._rgb=(red,green,blue)
         self._brightness = brightness
