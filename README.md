@@ -67,5 +67,17 @@ The light is automatically added and a device is created.
 - [x] Allow configuration through the integration UI
 - [ ] Enable discovery of lamps in UI? (Not sure if possible)
 - [ ] Look into setting up effect and flow (low priority)
-- [ ] Allow pairing process with new device
+- [x] Allow pairing process with new device
 - [ ] Support for candela light? (I do not have a device, so might need help from someone with one...)
+- [x] Scale temperature range so that it matches HA UI
+
+# Debugging
+
+In order to getmore information on what is going on, the debugging flag can be enabled by placing in the `configuration.yaml` of Home assistant:
+
+```yaml
+logger:
+  default: error
+  logs:
+    custom_components.yeelight_bt: debug
+```
