@@ -39,6 +39,10 @@ CMD_GETSERIAL = 0x5E
 RES_GETSERIAL = 0x5F
 RES_GETTIME = 0x62
 
+MODEL_BEDSIDE = "Bedside"
+MODEL_CANDELA = "Candela"
+
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -108,6 +112,8 @@ class Lamp:
         self._conn_max_time = 60  # minutes before reconnection
         self._write_time = 0
         self._paired = True
+        self.versions = None
+        self._model = "Unknown"
 
     def __str__(self):
         """ The string representation """
@@ -116,14 +122,17 @@ class Lamp:
             self.MODE_WHITE: "White",
             self.MODE_FLOW: "Flow",
         }
+        str_rgb = f"rgb_{self._rgb} " if self._rgb is not None else ""
+        str_temp = f"temp_{self._temperature}" if self._temperature is not None else ""
+        str_mode = mode_str[self._mode] if self._mode in mode_str else self._mode
         str_rep = (
             f"<Lamp {self._mac} "
             f"{'ON' if self._is_on else 'OFF'} "
-            f"mode_{mode_str[self._mode]} "
-            f"rgb_{self._rgb} "
-            f"brightness_{self._brightness} "
-            f"colortemp_{self._temperature}>"
+            f"mode_{str_mode} "
+            f"{str_rgb}{str_temp}"
+            f">"
         )
+
         return str_rep
 
     def add_callback_on_state_changed(self, func):
@@ -153,6 +162,9 @@ class Lamp:
         self.enable_notifications()
         self.pair()
         self._conn_time = time.time()  # num seconds since 1970
+        if not self.versions:
+            self.get_version()
+            self.get_serial()
         return True
 
     def disconnect(self):
@@ -271,6 +283,10 @@ class Lamp:
         return self._mode is not None
 
     @property
+    def model(self):
+        return self._model
+
+    @property
     def mode(self):
         return self._mode
 
@@ -378,7 +394,7 @@ class Lamp:
         return self.send_cmd(bits)
 
     def _process_notification(self, cHandle, data):
-        """Method called when a notification is send from the lamp
+        """Method called when a notification is sent from the lamp
         It is processed here rather than in the handleNotification() function,
         because the latter is not a method of the Lamp class, therefore it can't access
         the Lamp object's data
@@ -390,10 +406,17 @@ class Lamp:
         if res_type == RES_GETSTATE:  # state result
             state = struct.unpack(">xxBBBBBBBhx6x", data)
             self._is_on = state[0] == CMD_POWER_ON
-            self._mode = state[1] if self._paired else None
-            self._rgb = (state[2], state[3], state[4])  # , state[5])
-            self._brightness = state[6]
-            self._temperature = state[7]
+            if self._model == MODEL_CANDELA:
+                self._brightness = state[1]
+                self._mode = (
+                    state[2] if self._paired else None
+                )  # Not entirely sure this is the mode...
+                # Candela seems to also give something in state 3 and 4...
+            else:
+                self._mode = state[1] if self._paired else None
+                self._rgb = (state[2], state[3], state[4])  # , state[5])
+                self._brightness = state[6]
+                self._temperature = state[7]
             _LOGGER.debug(self)
             # Call any callback registered:
             for func in self._state_callbacks:
@@ -424,10 +447,16 @@ class Lamp:
                 self.connect()
 
         if res_type == RES_GETVER:
-            self.versions = struct.unpack("Bhhhh8x", data)
+            self.versions = struct.unpack("xxBHHHH6x", data)
+            _LOGGER.info(f"Lamp {self._mac} exposes versions:{self.versions}")
+            self._model = MODEL_BEDSIDE
+            if self.versions[0] > 2:
+                self._model = MODEL_CANDELA
+            _LOGGER.info(f"Lamp {self._mac} is a '{self._model}'")
 
         if res_type == RES_GETSERIAL:
-            self.serial = struct.unpack("B17x", data)[0]
+            self.serial = struct.unpack("xxB15x", data)[0]
+            _LOGGER.info(f"Lamp {self._mac} exposes serial:{self.serial}")
 
 
 def discover_yeelight_lamps():

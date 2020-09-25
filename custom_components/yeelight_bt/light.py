@@ -30,7 +30,7 @@ from homeassistant.util.color import (
     color_RGB_to_hs,
 )
 
-from .yeelightbt import Lamp
+from .yeelightbt import Lamp, MODEL_CANDELA
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
@@ -41,12 +41,8 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 
 LIGHT_EFFECT_LIST = ["flow", "none"]
 
-SUPPORT_YEELIGHTBT = (
-    SUPPORT_BRIGHTNESS
-    | SUPPORT_COLOR_TEMP
-    | SUPPORT_COLOR
-    # | SUPPORT_EFFECT
-)
+SUPPORT_YEELIGHT_BT = SUPPORT_BRIGHTNESS  # | SUPPORT_EFFECT
+SUPPORT_YEELIGHT_BEDSIDE = SUPPORT_YEELIGHT_BT | SUPPORT_COLOR_TEMP | SUPPORT_COLOR
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -181,7 +177,9 @@ class YeelightBT(LightEntity):
     @property
     def supported_features(self):
         """Flag supported features."""
-        return SUPPORT_YEELIGHTBT
+        if self._dev.model == MODEL_CANDELA:
+            return SUPPORT_YEELIGHT_BT
+        return SUPPORT_YEELIGHT_BEDSIDE
 
     def _status_cb(self):
         _LOGGER.debug("Got state notification from the lamp")
