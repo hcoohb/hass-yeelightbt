@@ -67,7 +67,13 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     )
     name = config_entry.data.get(CONF_NAME) or DOMAIN
     mac = config_entry.data.get(CONF_MAC)
-    async_add_entities([YeelightBT(name, mac)])
+    entity = YeelightBT(name, mac)
+    _LOGGER.debug("YEELIGHT: before first connection ----")
+    # execute a first connection to get the device model
+    result = await hass.async_add_executor_job(entity._dev.connect)
+    _LOGGER.debug(f"YEELIGHT: first connection result is {result}")
+    _LOGGER.debug("YEELIGHT: after first connection ----")
+    async_add_entities([entity])
 
 
 class YeelightBT(LightEntity):
@@ -99,16 +105,18 @@ class YeelightBT(LightEntity):
 
     @property
     def device_info(self):
-        return {
+        prop = {
             "identifiers": {
                 # Serial numbers are unique identifiers within a specific domain
                 (DOMAIN, self.unique_id)
             },
             "name": self._name,
-            "manufacturer": "xiaomi",
-            "model": "yeelight_bt",
-            # "sw_version": self.light.swversion,
+            "manufacturer": "Yeelight",
+            "model": self._dev.model,
         }
+        if self._dev.versions:
+            prop.update({"sw_version": "-".join(map(str, self._dev.versions[1:4]))})
+        return prop
 
     @property
     def unique_id(self):
