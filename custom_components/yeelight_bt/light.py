@@ -190,7 +190,7 @@ class YeelightBT(LightEntity):
 
         self._brightness = int(round(255.0 * self._dev.brightness / 100))
         self._is_on = self._dev.is_on
-        if self._dev.mode == self._dev.MODE_WHITE:
+        if self._dev.mode == self._dev.MODE_WHITE and self._dev.temperature is not None:
             temp_in_k = int(self.scale_temp_reversed(self._dev.temperature))
             self._ct = int(kelvin_to_mired(temp_in_k))
             self._rgb = (0, 0, 0)
