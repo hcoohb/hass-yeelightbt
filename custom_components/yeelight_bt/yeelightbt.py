@@ -141,7 +141,12 @@ class Lamp:
         """
         self._state_callbacks.append(func)
 
-    @retry(Exception, tries=3)
+    def run_state_changed_cb(self):
+        """Execute all registered callbacks for a state change"""
+        for func in self._state_callbacks:
+            func()
+
+    @retry(Exception, tries=2)
     def connect(self):
         """Connect to the lamp
         - Create a modified bluepy.btle.Peripheral object (see YeelightPeripheral)
@@ -167,23 +172,34 @@ class Lamp:
             self.get_serial()
         return True
 
-    def disconnect(self):
+    def disconnect(self, change_state=True):
         """Disconnect from the lamp
         Cleanup properly the bluepy's Peripheral and the Notification's Delegate
         to avoid weird issues
         """
-        self._mode = None  # lamp not available
-        # call callback as there is a change in state=not available
-        for func in self._state_callbacks:
-            func()
+        if change_state:
+            self._mode = None  # lamp not available
+            # call callback as there is a change in state=not available
+            self.run_state_changed_cb()
 
         try:
             self.lamp.disconnect()
         except Exception:
             pass
-        del self.lamp
-        del self.delegate
+        try:
+            del self.lamp
+            del self.delegate
+        except Exception:
+            pass
         self.lamp = None
+        self.delegate = None
+
+    def reconnect(self):
+        """Try reconnecting the lamp x times. If could not,
+        set _mode=None (unavailable)"""
+        self.disconnect(change_state=False)
+        if not self.connect():
+            self.disconnect()  # state changed
 
     def _get_handles(self):
         """Get the notify and control handles from the UUID
@@ -227,7 +243,9 @@ class Lamp:
         mtries = 3
         while mtries > 0:
             try:
-                _LOGGER.debug(f"Writing  0x{bits.hex()} on handle {handle}")
+                _LOGGER.debug(f"Trying to write  0x{bits.hex()} on handle {handle}")
+                if self.lamp is None:
+                    raise bluepy.btle.BTLEException("No current connection")
                 self.lamp.writeCharacteristic(handle, bits, withResponse)
                 self.lamp.waitForNotifications(0.05)  # (catch errors during writing)
                 self._write_time = time.time()
@@ -239,8 +257,7 @@ class Lamp:
                 if mtries > 1:
                     msg += ", Retrying now..."
                     _LOGGER.warning(msg)
-                    self.disconnect()
-                    self.connect()
+                    self.reconnect()  # run several times
                     mtries -= 1
                 else:
                     _LOGGER.error(msg)
@@ -260,8 +277,6 @@ class Lamp:
         if sec_since_write < 0.4:
             _LOGGER.debug("WAITING before next command")
             time.sleep(0.4 - sec_since_write)  # allow lamp transition to finish
-        if self.lamp is None:
-            self.connect()
         ret = self.writeCharacteristic(
             self._handle_control, bits, withResponse, wait_notif
         )
@@ -270,8 +285,7 @@ class Lamp:
             _LOGGER.debug(
                 f"Connection is {self._conn_max_time}min old - reconnecting..."
             )
-            self.disconnect()
-            self.connect()
+            self.reconnect()
         return ret
 
     @property
@@ -419,8 +433,7 @@ class Lamp:
                 self._temperature = state[7]
             _LOGGER.debug(self)
             # Call any callback registered:
-            for func in self._state_callbacks:
-                func()
+            self.run_state_changed_cb()
 
         if res_type == RES_PAIR:  # pairing result
             self._paired = False
@@ -443,8 +456,7 @@ class Lamp:
                 _LOGGER.error(
                     "The pairing request returned unexpected results. Reconnecting"
                 )
-                self.disconnect()
-                self.connect()
+                self.reconnect()
 
         if res_type == RES_GETVER:
             self.versions = struct.unpack("xxBHHHH6x", data)
