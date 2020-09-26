@@ -471,32 +471,6 @@ class Lamp:
             _LOGGER.info(f"Lamp {self._mac} exposes serial:{self.serial}")
 
 
-def discover_yeelight_lamps():
-    """Scanning feature
-    Scan the BLE neighborhood for an Yeelight lamp
-    This method requires the script to be launched as root
-    Returns the list of nearby lamps
-    """
-    lamp_list = []
-    from bluepy.btle import Scanner, DefaultDelegate
-
-    class ScanDelegate(DefaultDelegate):
-        """Overwrite of the Scan Delegate class"""
-
-        def __init__(self):
-            DefaultDelegate.__init__(self)
-
-    scanner = Scanner().withDelegate(ScanDelegate())
-    devices = scanner.scan(6.0)
-    for dev in devices:
-        # _LOGGER.debug(f"found {dev.addr} = {dev.getScanData()}")
-        for (adtype, desc, value) in dev.getScanData():
-            if "XMCTD" in value:
-                _LOGGER.debug(f"found Yeelight lamp with mac: {dev.addr}")
-                lamp_list.append(Lamp(dev.addr))
-    return lamp_list
-
-
 class YeelightDelegate(bluepy.btle.DefaultDelegate):
     """Overwrite of Bluepy's DefaultDelegate class
     It adds a lamp object that refers to the Lamp.lamp object which
@@ -541,3 +515,40 @@ class YeelightPeripheral(bluepy.btle.Peripheral):
             if respType not in wantType:
                 continue
             return resp
+
+
+def discover_yeelight_lamps():
+    """Scanning feature
+    Scan the BLE neighborhood for an Yeelight lamp
+    This method requires the script to be launched as root
+    Returns the list of nearby lamps
+    """
+    lamp_list = []
+    from bluepy.btle import Scanner, DefaultDelegate
+
+    class ScanDelegate(DefaultDelegate):
+        """Overwrite of the Scan Delegate class"""
+
+        def __init__(self):
+            DefaultDelegate.__init__(self)
+
+    scanner = Scanner().withDelegate(ScanDelegate())
+    devices = scanner.scan(12.0)
+    for dev in devices:
+        # _LOGGER.debug(f"found {dev.addr} = {dev.getScanData()}")
+        for (adtype, desc, value) in dev.getScanData():
+            if "XMCTD" in value:
+                _LOGGER.info(f"found Yeelight lamp with mac: {dev.addr}")
+                lamp_list.append(Lamp(dev.addr))
+    return lamp_list
+
+
+if __name__ == "__main__":
+
+    import sys
+
+    # start the logger to stdout
+    logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+    _LOGGER.info("YEELIGHT_BT scanning starts")
+    discover_yeelight_lamps()
+    _LOGGER.info("YEELIGHT_BT scanning ends")
