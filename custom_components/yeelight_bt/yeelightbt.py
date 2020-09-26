@@ -12,7 +12,7 @@ from functools import wraps
 
 # 3rd party imports
 import bluepy  # for BLE transmission
-
+from bluepy.btle import BTLEDisconnectError, BTLEManagementError  # noqa
 
 NOTIFY_UUID = "8f65073d-9f57-4aaa-afea-397d19d5bbeb"
 CONTROL_UUID = "aa7d3f34-2d4f-41e0-807f-52fbf8cf7443"
@@ -537,9 +537,14 @@ def discover_yeelight_lamps():
     for dev in devices:
         # _LOGGER.debug(f"found {dev.addr} = {dev.getScanData()}")
         for (adtype, desc, value) in dev.getScanData():
+            model = ""
             if "XMCTD" in value:
-                _LOGGER.info(f"found Yeelight lamp with mac: {dev.addr}")
-                lamp_list.append(Lamp(dev.addr))
+                model = MODEL_BEDSIDE
+            if "yeelight_ms" in value:
+                model = MODEL_CANDELA
+            if model:
+                lamp_list.append({"mac": dev.addr, "model": model})
+                _LOGGER.info(f"found {model} with mac: {dev.addr}, value:{value}")
     return lamp_list
 
 
