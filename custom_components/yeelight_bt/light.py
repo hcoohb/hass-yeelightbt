@@ -216,6 +216,7 @@ class YeelightBT(LightEntity):
             self._dev.get_state()  # blocking...
         except Exception as ex:
             _LOGGER.error(f"Fail requesting the light status. Got exception: {ex}")
+            _LOGGER.debug("Yeelight_BT trace:", exc_info=True)
 
     def turn_on(self, **kwargs):
         """Turn the light on."""
