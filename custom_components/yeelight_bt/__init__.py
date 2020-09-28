@@ -37,6 +37,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     return True
 
 
+async def async_migrate_entry(hass, entry):
+    """Migrate old entry."""
+    data = entry.data
+    version = entry.version
+
+    _LOGGER.debug(f"Migrating Yeelight_bt from Version {version}. it has data: {data}")
+    # Migrate Version 1 -> Version 2: Stuff up... nothing changed.
+    if version == 1:
+        version = entry.version = 2
+        hass.config_entries.async_update_entry(entry, data=data)
+    return True
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Unload a config entry."""
     _LOGGER.debug("async unload entry")
