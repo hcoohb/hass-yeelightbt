@@ -224,39 +224,49 @@ class YeelightBT(LightEntity):
 
         # First if brightness of dev to 0: turn off
         if ATTR_BRIGHTNESS in kwargs:
-            brightness_dev = int(round(kwargs[ATTR_BRIGHTNESS] * 1.0 / 255 * 100))
-            if brightness_dev == 0:
+            brightness = kwargs[ATTR_BRIGHTNESS]
+            if brightness == 0:
                 _LOGGER.debug("Lamp brightness to be set to 0... so turning off")
                 self.turn_off()
                 return
+        else:
+            brightness = self._brightness
+        brightness_dev = int(round(brightness * 1.0 / 255 * 100))
 
-        # ATTR can be set while light is off, so turn it on first:
+        # ATTR cannot be set while light is off, so turn it on first:
+        # Add a timer of 1 sec as the light will not register com while turning on
         if not self._is_on:
             self._dev.turn_on()
-            time.sleep(0.3)
+            time.sleep(1)
         self._is_on = True
 
         if ATTR_HS_COLOR in kwargs:
             rgb = color_hs_to_RGB(*kwargs.get(ATTR_HS_COLOR))
             self._rgb = rgb
-            _LOGGER.debug(f"Trying to set color RGB: {rgb}")
-            self._dev.set_color(*rgb, int(round(self._brightness * 1.0 / 255 * 100)))
+            _LOGGER.debug(
+                f"Trying to set color RGB:{rgb} with brighntess:{brightness_dev}"
+            )
+            self._dev.set_color(*rgb, brightness=brightness_dev)
+            self._brightness = brightness
+            return
 
         if ATTR_COLOR_TEMP in kwargs:
             mireds = kwargs[ATTR_COLOR_TEMP]
             temp_in_k = int(mired_to_kelvin(mireds))
             scaled_temp_in_k = self.scale_temp(temp_in_k)
-            _LOGGER.debug(f"Trying to set temp: {scaled_temp_in_k}")
-            brightness_dev = int(round(self._brightness * 1.0 / 255 * 100))
-            self._dev.set_temperature(scaled_temp_in_k, brightness_dev)
+            _LOGGER.debug(
+                f"Trying to set temp:{scaled_temp_in_k} with brightness:{brightness_dev}"
+            )
+            self._dev.set_temperature(scaled_temp_in_k, brightness=brightness_dev)
             self._ct = mireds
+            self._brightness = brightness
+            return
 
         if ATTR_BRIGHTNESS in kwargs:
-            brightness = kwargs[ATTR_BRIGHTNESS]
-            brightness_dev = int(round(brightness * 1.0 / 255 * 100))
             _LOGGER.debug(f"Trying to set brightness: {brightness_dev}")
             self._dev.set_brightness(brightness_dev)
             self._brightness = brightness
+            return
 
         # if ATTR_EFFECT in kwargs:
         #    self._effect = kwargs[ATTR_EFFECT]
