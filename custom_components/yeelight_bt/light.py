@@ -1,7 +1,6 @@
 """ light platform """
 
 import logging
-import time
 
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
@@ -233,11 +232,9 @@ class YeelightBT(LightEntity):
             brightness = self._brightness
         brightness_dev = int(round(brightness * 1.0 / 255 * 100))
 
-        # ATTR cannot be set while light is off, so turn it on first:
-        # Add a timer of 1 sec as the light will not register com while turning on
+        # ATTR cannot be set while light is off, so turn it on first
         if not self._is_on:
             self._dev.turn_on()
-            time.sleep(1)
         self._is_on = True
 
         if ATTR_HS_COLOR in kwargs:

@@ -111,6 +111,7 @@ class Lamp:
         self._conn_time = 0
         self._conn_max_time = 60  # minutes before reconnection
         self._write_time = 0
+        self._wait_next_cmd = 0
         self._paired = True
         self.versions = None
         self._model = "Unknown"
@@ -263,7 +264,9 @@ class Lamp:
                     _LOGGER.error(msg)
                     return False
 
-    def send_cmd(self, bits, withResponse=True, wait_notif: float = 1):
+    def send_cmd(
+        self, bits, withResponse=True, wait_notif: float = 1, wait_before_next_cmd=0.5
+    ):
         """
         Send a control command to the lamp, checking for response and waiting for notif.
         The lamp takes some time to transition to new state. If another command is
@@ -274,13 +277,16 @@ class Lamp:
 
         # if last command less than xx, we wait
         sec_since_write = time.time() - self._write_time
-        if sec_since_write < 0.4:
+        if sec_since_write < self._wait_next_cmd:
             _LOGGER.debug("WAITING before next command")
-            time.sleep(0.4 - sec_since_write)  # allow lamp transition to finish
+            # allow lamp transition to finish:
+            time.sleep(self._wait_next_cmd - sec_since_write)
         ret = self.writeCharacteristic(
             self._handle_control, bits, withResponse, wait_notif
         )
+        self._wait_next_cmd = wait_before_next_cmd
 
+        # reconnect the lamp every x hrs to maintain connection
         if ret and (time.time() - self._conn_time > 60 * self._conn_max_time):
             _LOGGER.debug(
                 f"Connection is {self._conn_max_time}min old - reconnecting..."
@@ -337,19 +343,18 @@ class Lamp:
         """Turn the lamp on. (send back state through notif) """
         _LOGGER.debug("Turn_on")
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_POWER, CMD_POWER_ON)
-        return self.send_cmd(bits)
+        return self.send_cmd(bits, wait_before_next_cmd=1)
 
     def turn_off(self):
         """Turn the lamp off. (send back state through notif) """
         _LOGGER.debug("Turn_off")
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_POWER, CMD_POWER_OFF)
-        return self.send_cmd(bits)
+        return self.send_cmd(bits, wait_before_next_cmd=1)
 
     # set_brightness/temperature/color do NOT send a notification back.
     # However, the lamp takes time to transition to new state
     # and if another command (including get_state) is sent during that time,
     # it stops the transition where it is...
-    # HA sends get_state straight away, so better put a little timer after sending
     def set_brightness(self, brightness: int):
         """ Set the brightness [1-100] (no notif)"""
         brightness = min(100, max(0, int(brightness)))
