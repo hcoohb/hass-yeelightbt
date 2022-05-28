@@ -1,7 +1,5 @@
 {
   "name": "Yeelight bluetooth",
   "render_readme": true,
-  "domains": ["yeelight_bt", "light"],
-  "homeassistant": "0.109.0",
-  "iot_class": "Local Polling"
+  "homeassistant": "0.109.0"
 }
