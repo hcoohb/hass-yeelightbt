@@ -9,8 +9,7 @@ from .const import DOMAIN, CONF_ENTRY_METHOD, CONF_ENTRY_SCAN, CONF_ENTRY_MANUAL
 
 from .yeelightbt import (
     discover_yeelight_lamps,
-    BTLEDisconnectError,
-    BTLEManagementError,
+    BleakError,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -52,14 +51,10 @@ class Yeelight_btConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: 
             return self.async_show_form(step_id="scan")
         _LOGGER.debug("Starting a scan for Yeelight Bt devices")
         try:
-            devices = await self.hass.async_add_executor_job(discover_yeelight_lamps)
-        except BTLEDisconnectError as err:
+            devices = await discover_yeelight_lamps()
+        except BleakError as err:
             _LOGGER.error(f"Bluetooth connection error while trying to scan: {err}")
-            errors["base"] = "BTLEDisconnectError"
-            return self.async_show_form(step_id="scan", errors=errors)
-        except BTLEManagementError as err:
-            _LOGGER.error(f"Bluetooth connection error while trying to scan: {err}")
-            errors["base"] = "BTLEManagementError"
+            errors["base"] = "BleakError"
             return self.async_show_form(step_id="scan", errors=errors)
 
         if not devices:

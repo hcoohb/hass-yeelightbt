@@ -1,10 +1,11 @@
 """ light platform """
 
 import logging
+import asyncio
 
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
-from homeassistant.const import CONF_NAME, CONF_MAC
+from homeassistant.const import CONF_NAME, CONF_MAC, EVENT_HOMEASSISTANT_STOP
 from .const import DOMAIN
 from homeassistant.components.light import ENTITY_ID_FORMAT
 from homeassistant.helpers.entity import generate_entity_id
@@ -29,7 +30,7 @@ from homeassistant.util.color import (
     color_RGB_to_hs,
 )
 
-from .yeelightbt import Lamp, MODEL_CANDELA
+from .yeelightbt import Lamp, MODEL_CANDELA, BleakError
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
@@ -46,7 +47,7 @@ SUPPORT_YEELIGHT_BEDSIDE = SUPPORT_YEELIGHT_BT | SUPPORT_COLOR_TEMP | SUPPORT_CO
 _LOGGER = logging.getLogger(__name__)
 
 
-def setup_platform(hass, config, add_entities, discovery_info=None):
+def async_setup_platform(hass, config, add_entities, discovery_info=None):
     """Setup the yeelightbt light platform."""
     mac = config[CONF_MAC]
     name = config[CONF_NAME]
@@ -55,7 +56,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
         _LOGGER.debug("Adding autodetected %s", discovery_info["hostname"])
         name = DOMAIN
     _LOGGER.debug(f"Adding light {name} with mac:{mac}")
-    add_entities([YeelightBT(name, mac)])
+    async_add_entities([YeelightBT(name, mac)])
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
@@ -67,11 +68,6 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     name = config_entry.data.get(CONF_NAME) or DOMAIN
     mac = config_entry.data.get(CONF_MAC)
     entity = YeelightBT(name, mac)
-    _LOGGER.debug("YEELIGHT: before first connection ----")
-    # execute a first connection to get the device model
-    result = await hass.async_add_executor_job(entity._dev.connect)
-    _LOGGER.debug(f"YEELIGHT: first connection result is {result}")
-    _LOGGER.debug("YEELIGHT: after first connection ----")
     async_add_entities([entity])
 
 
@@ -101,6 +97,27 @@ class YeelightBT(LightEntity):
         self._max_mireds = kelvin_to_mired(
             self._prop_min_max["temperature"]["min"]
         )  # reversed scale
+
+    async def async_added_to_hass(self) -> None:
+        """Run when entity about to be added to hass."""
+        self.async_on_remove(
+            self.hass.bus.async_listen_once(
+                EVENT_HOMEASSISTANT_STOP, self.async_will_remove_from_hass
+            )
+        )
+        _LOGGER.debug("YEELIGHT: before first connection ----")
+        # execute a first connection to get the device model
+        await self._dev.connect()
+        _LOGGER.debug("YEELIGHT: after first connection ----")
+
+    async def async_will_remove_from_hass(self, *args) -> None:
+        """Run when entity will be removed from hass."""
+        try:
+            await self._dev.disconnect()
+        except BleakError:
+            _LOGGER.debug(
+                f"Exception disconnecting from {self._dev._mac}", exc_info=True
+            )
 
     @property
     def device_info(self):
@@ -192,7 +209,7 @@ class YeelightBT(LightEntity):
         _LOGGER.debug("Got state notification from the lamp")
         self._available = self._dev.available
         if not self._available:
-            self.schedule_update_ha_state()
+            self.async_schedule_update_ha_state()
             return
 
         self._brightness = int(round(255.0 * self._dev.brightness / 100))
@@ -205,19 +222,19 @@ class YeelightBT(LightEntity):
             self._ct = None
             self._rgb = self._dev.color
 
-        self.schedule_update_ha_state()
+        self.async_schedule_update_ha_state()
 
-    def update(self):
+    async def async_update(self):
         # Note, update should only start fetching,
         # followed by asynchronous updates through notifications.
         try:
             _LOGGER.debug("Requesting an update of the lamp status")
-            self._dev.get_state()  # blocking...
+            await self._dev.get_state()
         except Exception as ex:
             _LOGGER.error(f"Fail requesting the light status. Got exception: {ex}")
             _LOGGER.debug("Yeelight_BT trace:", exc_info=True)
 
-    def turn_on(self, **kwargs):
+    async def async_turn_on(self, **kwargs):
         """Turn the light on."""
         _LOGGER.debug(f"Trying to turn on. with ATTR:{kwargs}")
 
@@ -226,7 +243,7 @@ class YeelightBT(LightEntity):
             brightness = kwargs[ATTR_BRIGHTNESS]
             if brightness == 0:
                 _LOGGER.debug("Lamp brightness to be set to 0... so turning off")
-                self.turn_off()
+                await self.turn_off()
                 return
         else:
             brightness = self._brightness
@@ -234,7 +251,7 @@ class YeelightBT(LightEntity):
 
         # ATTR cannot be set while light is off, so turn it on first
         if not self._is_on:
-            self._dev.turn_on()
+            await self._dev.turn_on()
         self._is_on = True
 
         if ATTR_HS_COLOR in kwargs:
@@ -243,7 +260,7 @@ class YeelightBT(LightEntity):
             _LOGGER.debug(
                 f"Trying to set color RGB:{rgb} with brighntess:{brightness_dev}"
             )
-            self._dev.set_color(*rgb, brightness=brightness_dev)
+            await self._dev.set_color(*rgb, brightness=brightness_dev)
             self._brightness = brightness
             return
 
@@ -254,24 +271,24 @@ class YeelightBT(LightEntity):
             _LOGGER.debug(
                 f"Trying to set temp:{scaled_temp_in_k} with brightness:{brightness_dev}"
             )
-            self._dev.set_temperature(scaled_temp_in_k, brightness=brightness_dev)
+            await self._dev.set_temperature(scaled_temp_in_k, brightness=brightness_dev)
             self._ct = mireds
             self._brightness = brightness
             return
 
         if ATTR_BRIGHTNESS in kwargs:
             _LOGGER.debug(f"Trying to set brightness: {brightness_dev}")
-            self._dev.set_brightness(brightness_dev)
+            await self._dev.set_brightness(brightness_dev)
             self._brightness = brightness
             return
 
         # if ATTR_EFFECT in kwargs:
         #    self._effect = kwargs[ATTR_EFFECT]
 
-    def turn_off(self, **kwargs):
+    async def async_turn_off(self, **kwargs):
         """Turn the light off."""
 
-        self._dev.turn_off()
+        await self._dev.turn_off()
         self._is_on = False
 
     def scale_temp(self, temp):
