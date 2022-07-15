@@ -5,14 +5,12 @@ Source  : https://github.com/hcoohb/hass-yeelightbt
 """
 
 # Standard imports
-import time  # for delays
+import asyncio
 import struct
 import logging
-from functools import wraps
 
 # 3rd party imports
-import bluepy  # for BLE transmission
-from bluepy.btle import BTLEDisconnectError, BTLEManagementError  # noqa
+from bleak import BleakClient, BleakError
 
 NOTIFY_UUID = "8f65073d-9f57-4aaa-afea-397d19d5bbeb"
 CONTROL_UUID = "aa7d3f34-2d4f-41e0-807f-52fbf8cf7443"
@@ -46,41 +44,6 @@ MODEL_CANDELA = "Candela"
 _LOGGER = logging.getLogger(__name__)
 
 
-def retry(ExceptionToCheck, tries=3, delay=0.1):
-    """Retry calling the decorated function.
-
-    :param ExceptionToCheck: the exception to check. may be a tuple of exceptions to
-    check
-    :type ExceptionToCheck: Exception or tuple
-    :param tries: number of times to try (not retry) before giving up
-    :type tries: int
-    :param delay: initial delay between retries in seconds
-    :type delay: int
-    """
-
-    def deco_retry(f):
-        @wraps(f)
-        def f_retry(*args, **kwargs):
-            mtries, mdelay = tries, delay
-            while mtries > 0:
-                try:
-                    return f(*args, **kwargs)
-                except ExceptionToCheck as e:
-                    msg = f"Could not connect to lamp: error{e.__class__}({str(e)})"
-                    if mtries > 1:
-                        msg += f", Retrying in {mdelay} seconds..."
-                        _LOGGER.warning(msg)
-                        time.sleep(mdelay)
-                        mtries -= 1
-                    else:
-                        _LOGGER.error(msg)
-                        return False
-
-        return f_retry  # true decorator
-
-    return deco_retry
-
-
 class Lamp:
     """The class that represents a Yeelight lamp
     A Lamp object describe a real world Yeelight lamp.
@@ -95,26 +58,19 @@ class Lamp:
     def __init__(self, mac_address):
         """ Just setup some vars"""
         _LOGGER.debug(f"Creating Yeelight Lamp {mac_address}")
+        self._client =  BleakClient(mac_address, timeout=10)
         self._mac = mac_address
         self._is_on = False
         self._mode = None
         self._rgb = None
         self._brightness = None
         self._temperature = None
-
-        self._handle_notif = False
-        self._handle_control = False
-        self._state_callbacks = []  # store func to call on state received
-
-        self.lamp = None
-        self.delegate = None
-        self._conn_time = 0
-        self._conn_max_time = 60  # minutes before reconnection
-        self._write_time = 0
-        self._wait_next_cmd = 0
         self._paired = True
         self.versions = None
         self._model = "Unknown"
+
+        self._state_callbacks = []  # store func to call on state received
+        self._wait_next_cmd = 0
 
     def __str__(self):
         """ The string representation """
@@ -147,152 +103,42 @@ class Lamp:
         for func in self._state_callbacks:
             func()
 
-    @retry(Exception, tries=2)
-    def connect(self):
-        """Connect to the lamp
-        - Create a modified bluepy.btle.Peripheral object (see YeelightPeripheral)
-        - Connect to the lamp
-        - Add a delegate for notifications
-        - Send the "enable bit" for notifications
-        - send pair signal
-        Tries 3 times if exceptions encountered...
-        :return: True if the connection is successful, false otherwise
-        """
-        self.lamp = YeelightPeripheral()
-        self.delegate = YeelightDelegate(self)
+    def diconnected_cb(self, client):
+        _LOGGER.debug(f"Client with address {client.address} got disconnected!")
+        self._mode = None  # lamp not available
+        self.run_state_changed_cb()
 
-        self.lamp.connect(self._mac)
-
-        self.lamp.withDelegate(self.delegate)
-        self._get_handles()
-        self.enable_notifications()
-        self.pair()
-        self._conn_time = time.time()  # num seconds since 1970
-        if not self.versions:
-            self.get_version()
-            self.get_serial()
-        return True
-
-    def disconnect(self, change_state=True):
-        """Disconnect from the lamp
-        Cleanup properly the bluepy's Peripheral and the Notification's Delegate
-        to avoid weird issues
-        """
-        if change_state:
-            self._mode = None  # lamp not available
-            # call callback as there is a change in state=not available
-            self.run_state_changed_cb()
-
-        try:
-            self.lamp.disconnect()
-        except Exception:
-            pass
-        try:
-            del self.lamp
-            del self.delegate
-        except Exception:
-            pass
-        self.lamp = None
-        self.delegate = None
-
-    def reconnect(self):
-        """Try reconnecting the lamp x times. If could not,
-        set _mode=None (unavailable)"""
-        self.disconnect(change_state=False)
-        if not self.connect():
-            self.disconnect()  # state changed
-
-    def _get_handles(self):
-        """Get the notify and control handles from the UUID
-        Only once for this Lamp instance
-        """
-        if not self._handle_notif:
-            notif_char = self.lamp.getCharacteristics(uuid=NOTIFY_UUID)
-            _LOGGER.debug(
-                f"{len(notif_char)} Characteristics for notify service. "
-                f"1st handle={notif_char[0].getHandle()}"
-            )
-            self._handle_notif = notif_char[0].getHandle()
-        if not self._handle_control:
-            ctrl_char = self.lamp.getCharacteristics(uuid=CONTROL_UUID)
-            _LOGGER.debug(
-                f"{len(ctrl_char)} Characteristics for control service."
-                f"1st handle={ctrl_char[0].getHandle()}"
-            )
-            self._handle_control = ctrl_char[0].getHandle()
-
-    def enable_notifications(self):
-        """ enable notifications, 0100 is the "enable bit" """
-        self.writeCharacteristic(self._handle_notif + 1, b"\x01\x00")
-
-    def pair(self):
-        """Send the pairing request to the lamp
-        Needed to be able to send control command
-        """
-        bits = struct.pack("BBB15x", COMMAND_STX, CMD_PAIR, CMD_PAIR_ON)
-        self.writeCharacteristic(self._handle_control, bits, wait_notif=0.5)
-
-    def writeCharacteristic(
-        self, handle, bits, withResponse=False, wait_notif: float = 0
-    ):
-        """write characetristic to the lamp and wait for notification if defined.
-        In case excepion is raised: disconnect and reconnect bt lamp. Tries 3 times max.
-
-        Return True if no exception has risen (does not 100% means we wrote on device...)
-        Return False if we could not write for sure
-        """
-        mtries = 3
-        while mtries > 0:
+    async def connect(self):
+        if self._client.is_connected:
+            return
+        for i in range(3):
             try:
-                _LOGGER.debug(f"Trying to write  0x{bits.hex()} on handle {handle}")
-                if self.lamp is None:
-                    raise bluepy.btle.BTLEException("No current connection")
-                self.lamp.writeCharacteristic(handle, bits, withResponse)
-                self.lamp.waitForNotifications(0.05)  # (catch errors during writing)
-                self._write_time = time.time()
-                if wait_notif > 0:
-                    self.lamp.waitForNotifications(wait_notif)
-                return True
-            except Exception as e:
-                msg = f"Could not write to lamp: error{e.__class__}({str(e)})"
-                if mtries > 1:
-                    msg += ", Retrying now..."
-                    _LOGGER.warning(msg)
-                    self.reconnect()  # run several times
-                    mtries -= 1
-                else:
-                    _LOGGER.error(msg)
-                    return False
+                await self._client.disconnect()
+                self._client =  BleakClient(self._mac, timeout=10)
+                await self._client.connect()
+                _LOGGER.debug(f"Connected: {self._client.is_connected}")
+                self._client.set_disconnected_callback(self.diconnected_cb)
+                await self._client.start_notify(NOTIFY_UUID, self.notification_handler)
+                _LOGGER.debug("Notifying")
+                await self.pair()
+                if not self.versions:
+                    await self.get_version()
+                    await self.get_serial()
+                break
+            except asyncio.TimeoutError:
+                _LOGGER.error("Connection Timeout error")
+            except BleakError as err:
+                _LOGGER.error(f"Connection: BleakError: {err}")
 
-    def send_cmd(
-        self, bits, withResponse=True, wait_notif: float = 1, wait_before_next_cmd=0.5
-    ):
-        """
-        Send a control command to the lamp, checking for response and waiting for notif.
-        The lamp takes some time to transition to new state. If another command is
-        received during that time it stops the transition. So we place a timer to ensure
-        the transition has finished before the new command.
-        Check if connection is xx min old and reconnect... Seems to fix some issues.
-        """
+    async def disconnect(self):
+        if self._client.is_connected:
+            try:
+                await self._client.disconnect()
+            except asyncio.TimeoutError:
+                _LOGGER.error("Disconnection: Timeout error")
+            except BleakError as err:
+                _LOGGER.error(f"Disconnection: BleakError: {err}")
 
-        # if last command less than xx, we wait
-        sec_since_write = time.time() - self._write_time
-        if sec_since_write < self._wait_next_cmd:
-            _LOGGER.debug("WAITING before next command")
-            # allow lamp transition to finish:
-            time.sleep(self._wait_next_cmd - sec_since_write)
-        ret = self.writeCharacteristic(
-            self._handle_control, bits, withResponse, wait_notif
-        )
-        self._wait_next_cmd = wait_before_next_cmd
-
-        # reconnect the lamp every x hrs to maintain connection
-        if ret and (time.time() - self._conn_time > 60 * self._conn_max_time):
-            _LOGGER.debug(
-                f"Connection is {self._conn_max_time}min old - reconnecting..."
-            )
-            self.reconnect()
-        return ret
 
     @property
     def mac(self):
@@ -333,53 +179,71 @@ class Lamp:
             "color": {"min": 0, "max": 255},
         }
 
-    def get_state(self):
+
+    async def send_cmd(self, bits, withResponse=True, wait_notif: float = 1, wait_before_next_cmd=0.5):
+        await self.connect()
+        if self._client.is_connected:
+            try:
+                await self._client.write_gatt_char(CONTROL_UUID, bits)
+                await asyncio.sleep(wait_before_next_cmd)
+            except asyncio.TimeoutError:
+                _LOGGER.error("Send Cmd: Timeout error")
+            except BleakError as err:
+                _LOGGER.error(f"Send Cmd: BleakError: {err}")
+
+    async def pair(self):
+        bits = struct.pack("BBB15x", COMMAND_STX, CMD_PAIR, CMD_PAIR_ON)
+        await self.send_cmd(bits)
+
+    async def get_state(self):
         """Request the state of the lamp (send back state through notif)"""
         _LOGGER.debug("Get_state")
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_GETSTATE, CMD_GETSTATE_SEC)
-        return self.send_cmd(bits)
+        await self.send_cmd(bits)
 
-    def turn_on(self):
+    async def turn_on(self):
         """Turn the lamp on. (send back state through notif) """
         _LOGGER.debug("Turn_on")
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_POWER, CMD_POWER_ON)
-        return self.send_cmd(bits, wait_before_next_cmd=1)
+        await self.send_cmd(bits, wait_before_next_cmd=1)
 
-    def turn_off(self):
+    async def turn_off(self):
         """Turn the lamp off. (send back state through notif) """
         _LOGGER.debug("Turn_off")
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_POWER, CMD_POWER_OFF)
-        return self.send_cmd(bits, wait_before_next_cmd=1)
+        await self.send_cmd(bits, wait_before_next_cmd=1)
 
     # set_brightness/temperature/color do NOT send a notification back.
     # However, the lamp takes time to transition to new state
     # and if another command (including get_state) is sent during that time,
     # it stops the transition where it is...
-    def set_brightness(self, brightness: int):
+    async def set_brightness(self, brightness: int):
         """ Set the brightness [1-100] (no notif)"""
         brightness = min(100, max(0, int(brightness)))
         _LOGGER.debug(f"Set_brightness {brightness}")
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_BRIGHTNESS, brightness)
-        ret = self.send_cmd(bits, wait_notif=0)
+        await self.send_cmd(bits, wait_notif=0)
+        ret = True
         if ret:
             self._brightness = brightness
         return ret
 
-    def set_temperature(self, kelvin: int, brightness: int = None):
+    async def set_temperature(self, kelvin: int, brightness: int = None):
         """ Set the temperature (White mode) [1700 - 6500 K] (no notif)"""
         if brightness is None:
             brightness = self.brightness
         kelvin = min(6500, max(1700, int(kelvin)))
         _LOGGER.debug(f"Set_temperature {kelvin}, {brightness}")
         bits = struct.pack(">BBhB13x", COMMAND_STX, CMD_TEMP, kelvin, brightness)
-        ret = self.send_cmd(bits, wait_notif=0)
+        await self.send_cmd(bits, wait_notif=0)
+        ret = True
         if ret:
             self._temperature = kelvin
             self._brightness = brightness
             self._mode = self.MODE_WHITE
         return ret
 
-    def set_color(self, red: int, green: int, blue: int, brightness: int = None):
+    async def set_color(self, red: int, green: int, blue: int, brightness: int = None):
         """ Set the color of the lamp [0-255] (no notif)"""
         if brightness is None:
             brightness = self.brightness
@@ -387,32 +251,33 @@ class Lamp:
         bits = struct.pack(
             "BBBBBBB11x", COMMAND_STX, CMD_RGB, red, green, blue, 0x01, brightness
         )
-        ret = self.send_cmd(bits, wait_notif=0)
+        await self.send_cmd(bits, wait_notif=0)
+        ret = True
         if ret:
             self._rgb = (red, green, blue)
             self._brightness = brightness
             self._mode = self.MODE_COLOR
         return ret
 
-    def get_name(self):
+    async def get_name(self):
         """ Get the name from the lamp (through notif)"""
         _LOGGER.debug("Get_name")
         bits = struct.pack("BB16x", COMMAND_STX, CMD_GETNAME)
-        return self.send_cmd(bits)
+        await self.send_cmd(bits)
 
-    def get_version(self):
+    async def get_version(self):
         """ Get the versions from the lamp (through notif) """
         _LOGGER.debug("Get_version")
         bits = struct.pack("BB16x", COMMAND_STX, CMD_GETVER)
-        return self.send_cmd(bits)
+        await self.send_cmd(bits)
 
-    def get_serial(self):
+    async def get_serial(self):
         """ Get the serial from the lamp (through notif) """
         _LOGGER.debug("Get_serial")
         bits = struct.pack("BB16x", COMMAND_STX, CMD_GETSERIAL)
-        return self.send_cmd(bits)
+        await self.send_cmd(bits)
 
-    def _process_notification(self, cHandle, data):
+    def notification_handler(self, cHandle, data):
         """Method called when a notification is sent from the lamp
         It is processed here rather than in the handleNotification() function,
         because the latter is not a method of the Lamp class, therefore it can't access
@@ -461,7 +326,7 @@ class Lamp:
                 _LOGGER.error(
                     "The pairing request returned unexpected results. Reconnecting"
                 )
-                self.reconnect()
+                # self.reconnect()
 
         if res_type == RES_GETVER:
             self.versions = struct.unpack("xxBHHHH6x", data)
@@ -476,80 +341,23 @@ class Lamp:
             _LOGGER.info(f"Lamp {self._mac} exposes serial:{self.serial}")
 
 
-class YeelightDelegate(bluepy.btle.DefaultDelegate):
-    """Overwrite of Bluepy's DefaultDelegate class
-    It adds a lamp object that refers to the Lamp.lamp object which
-    called this delegate.
-    It is used to call the lamp._process_notification() function
-    """
-
-    def __init__(self, lampObject):
-        self.lamp = lampObject
-
-    def handleNotification(self, cHandle, data):
-        """Overwrite of the async function called when a device sends a notification.
-        It's just passing the data to _process_notification(),
-        which is linked to the emitting lamp (via self.lamp).
-        This allows us to use the lamp's functions and interact with the response.
-        """
-        self.lamp._process_notification(cHandle, data)
-
-
-class YeelightPeripheral(bluepy.btle.Peripheral):
-    """Overwrite of the Bluepy 'Peripheral' class.
-    It overwrite the default to _getResp() correct bug waiting for notifications
-    """
-
-    # PR348: https://github.com/IanHarvey/bluepy/pull/348
-    # TO BE REMOVED once pluepy release > 1.3.0
-    def _getResp(self, wantType, timeout=None):
-        if isinstance(wantType, list) is not True:
-            wantType = [wantType]
-
-        while True:
-            resp = self._waitResp(wantType + ["ntfy", "ind"], timeout)
-            if resp is None:
-                return None
-
-            respType = resp["rsp"][0]
-            if respType == "ntfy" or respType == "ind":
-                hnd = resp["hnd"][0]
-                data = resp["d"][0]
-                if self.delegate is not None:
-                    self.delegate.handleNotification(hnd, data)
-            if respType not in wantType:
-                continue
-            return resp
-
-
-def discover_yeelight_lamps():
+async def discover_yeelight_lamps():
     """Scanning feature
     Scan the BLE neighborhood for an Yeelight lamp
     This method requires the script to be launched as root
     Returns the list of nearby lamps
     """
     lamp_list = []
-    from bluepy.btle import Scanner, DefaultDelegate
+    from bleak import BleakScanner
 
-    class ScanDelegate(DefaultDelegate):
-        """Overwrite of the Scan Delegate class"""
-
-        def __init__(self):
-            DefaultDelegate.__init__(self)
-
-    scanner = Scanner().withDelegate(ScanDelegate())
-    devices = scanner.scan(12.0)
-    for dev in devices:
-        # _LOGGER.debug(f"found {dev.addr} = {dev.getScanData()}")
-        for (adtype, desc, value) in dev.getScanData():
-            model = ""
-            if "XMCTD" in value:
-                model = MODEL_BEDSIDE
-            if "yeelight_ms" in value:
-                model = MODEL_CANDELA
-            if model:
-                lamp_list.append({"mac": dev.addr, "model": model})
-                _LOGGER.info(f"found {model} with mac: {dev.addr}, value:{value}")
+    devices = await BleakScanner.discover()
+    for d in devices:
+        if d.name.startswith("XMCTD"):
+            lamp_list.append({"mac": d.address, "model": MODEL_BEDSIDE})
+            _LOGGER.info(f"found {MODEL_BEDSIDE} with mac: {d.address}, details:{d.details}")
+        if "yeelight_ms" in d.name:
+            lamp_list.append({"mac": d.address, "model": MODEL_CANDELA})
+            _LOGGER.info(f"found {MODEL_CANDELA} with mac: {d.address}, details:{d.details}")
     return lamp_list
 
 
@@ -557,8 +365,28 @@ if __name__ == "__main__":
 
     import sys
 
+    # bleak backends are very loud, this reduces the log spam when using --debug
+    logging.getLogger("bleak.backends").setLevel(logging.WARNING)
     # start the logger to stdout
     logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
     _LOGGER.info("YEELIGHT_BT scanning starts")
-    discover_yeelight_lamps()
-    _LOGGER.info("YEELIGHT_BT scanning ends")
+
+    # start discovery:
+    # lamp_list = asyncio.run(discover_yeelight_lamps())
+    # _LOGGER.info("YEELIGHT_BT scanning ends")
+
+    lamp_list = [{"mac":"F8:24:41:E6:3E:39", "model":MODEL_BEDSIDE}]
+    # now try to connect to the lamp
+    if not lamp_list:
+        exit
+    
+    async def test_light():
+        yee = Lamp(lamp_list[0]["mac"])
+        await yee.connect()
+        await yee.turn_on()
+        await asyncio.sleep(5.0)
+        await yee.turn_off()
+        await asyncio.sleep(2.0)
+    
+    asyncio.run(test_light())
+    print("The end")
