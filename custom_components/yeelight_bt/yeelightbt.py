@@ -181,12 +181,12 @@ class Lamp:
         }
 
 
-    async def send_cmd(self, bits, withResponse=True, wait_notif: float = 1, wait_before_next_cmd=0.5):
+    async def send_cmd(self, bits, wait_notif: float = 0.5):
         await self.connect()
         if self._client.is_connected:
             try:
                 await self._client.write_gatt_char(CONTROL_UUID, bits)
-                await asyncio.sleep(wait_before_next_cmd)
+                await asyncio.sleep(wait_notif)
             except asyncio.TimeoutError:
                 _LOGGER.error("Send Cmd: Timeout error")
             except BleakError as err:
@@ -207,13 +207,13 @@ class Lamp:
         """Turn the lamp on. (send back state through notif) """
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_POWER, CMD_POWER_ON)
         _LOGGER.debug("Send Cmd: Turn On")
-        await self.send_cmd(bits, wait_before_next_cmd=1)
+        await self.send_cmd(bits)
 
     async def turn_off(self):
         """Turn the lamp off. (send back state through notif) """
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_POWER, CMD_POWER_OFF)
         _LOGGER.debug("Send Cmd: Turn Off")
-        await self.send_cmd(bits, wait_before_next_cmd=1)
+        await self.send_cmd(bits)
 
     # set_brightness/temperature/color do NOT send a notification back.
     # However, the lamp takes time to transition to new state
@@ -329,9 +329,8 @@ class Lamp:
                 self._paired = True
             if pair_mode == 0x06 or pair_mode == 0x07:
                 _LOGGER.error(
-                    "The pairing request returned unexpected results. Reconnecting"
+                    "The pairing request returned unexpected results. Reconnecting will be needed"
                 )
-                # self.reconnect()
 
         if res_type == RES_GETVER:
             self.versions = struct.unpack("xxBHHHH6x", data)
