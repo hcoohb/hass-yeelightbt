@@ -261,7 +261,7 @@ class YeelightBT(LightEntity):
                 f"Trying to set color RGB:{rgb} with brighntess:{brightness_dev}"
             )
             await self._dev.set_color(*rgb, brightness=brightness_dev)
-            self._brightness = brightness
+            self._brightness = self._dev._brightness
             return
 
         if ATTR_COLOR_TEMP in kwargs:
@@ -273,13 +273,13 @@ class YeelightBT(LightEntity):
             )
             await self._dev.set_temperature(scaled_temp_in_k, brightness=brightness_dev)
             self._ct = mireds
-            self._brightness = brightness
+            self._brightness = self._dev._brightness
             return
 
         if ATTR_BRIGHTNESS in kwargs:
             _LOGGER.debug(f"Trying to set brightness: {brightness_dev}")
             await self._dev.set_brightness(brightness_dev)
-            self._brightness = brightness
+            self._brightness = self._dev._brightness
             return
 
         # if ATTR_EFFECT in kwargs:

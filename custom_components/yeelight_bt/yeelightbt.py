@@ -187,10 +187,12 @@ class Lamp:
             try:
                 await self._client.write_gatt_char(CONTROL_UUID, bits)
                 await asyncio.sleep(wait_notif)
+                return True
             except asyncio.TimeoutError:
                 _LOGGER.error("Send Cmd: Timeout error")
             except BleakError as err:
                 _LOGGER.error(f"Send Cmd: BleakError: {err}")
+        return False
 
     async def pair(self):
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_PAIR, CMD_PAIR_ON)
@@ -225,44 +227,35 @@ class Lamp:
         _LOGGER.debug(f"Set_brightness {brightness}")
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_BRIGHTNESS, brightness)
         _LOGGER.debug("Send Cmd: Brightness")
-        await self.send_cmd(bits, wait_notif=0)
-        ret = True
-        if ret:
+        if await self.send_cmd(bits, wait_notif=0):
             self._brightness = brightness
-        return ret
 
     async def set_temperature(self, kelvin: int, brightness: int = None):
         """ Set the temperature (White mode) [1700 - 6500 K] (no notif)"""
         if brightness is None:
-            brightness = self.brightness
+            brightness = self._brightness
         kelvin = min(6500, max(1700, int(kelvin)))
         _LOGGER.debug(f"Set_temperature {kelvin}, {brightness}")
         bits = struct.pack(">BBhB13x", COMMAND_STX, CMD_TEMP, kelvin, brightness)
         _LOGGER.debug("Send Cmd: Temperature")
-        await self.send_cmd(bits, wait_notif=0)
-        ret = True
-        if ret:
+        if await self.send_cmd(bits, wait_notif=0):
             self._temperature = kelvin
             self._brightness = brightness
             self._mode = self.MODE_WHITE
-        return ret
 
     async def set_color(self, red: int, green: int, blue: int, brightness: int = None):
         """ Set the color of the lamp [0-255] (no notif)"""
         if brightness is None:
-            brightness = self.brightness
+            brightness = self._brightness
         _LOGGER.debug(f"Set_color {(red, green, blue)}, {brightness}")
         bits = struct.pack(
             "BBBBBBB11x", COMMAND_STX, CMD_RGB, red, green, blue, 0x01, brightness
         )
         _LOGGER.debug("Send Cmd: Color")
-        await self.send_cmd(bits, wait_notif=0)
-        ret = True
-        if ret:
+        if await self.send_cmd(bits, wait_notif=0):
             self._rgb = (red, green, blue)
             self._brightness = brightness
             self._mode = self.MODE_COLOR
-        return ret
 
     async def get_name(self):
         """ Get the name from the lamp (through notif)"""
