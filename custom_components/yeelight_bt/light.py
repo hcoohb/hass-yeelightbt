@@ -87,7 +87,7 @@ class YeelightBT(LightEntity):
         self._effect = "none"
         self._available = False
 
-        _LOGGER.info(f"Initializing {self.name}, {self._mac}")
+        _LOGGER.info(f"Initializing YeelightBT Entity: {self.name}, {self._mac}")
         self._dev = Lamp(self._mac)
         self._dev.add_callback_on_state_changed(self._status_cb)
         self._prop_min_max = self._dev.get_prop_min_max()
