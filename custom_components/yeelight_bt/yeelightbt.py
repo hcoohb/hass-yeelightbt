@@ -47,8 +47,6 @@ _LOGGER = logging.getLogger(__name__)
 class Lamp:
     """The class that represents a Yeelight lamp
     A Lamp object describe a real world Yeelight lamp.
-    It is linked to an YeelightPeripheral object for BLE transmissions
-    and an YeelightDelegate for BLE notifications handling.
     """
 
     MODE_COLOR = 0x01
@@ -56,8 +54,7 @@ class Lamp:
     MODE_FLOW = 0x03
 
     def __init__(self, mac_address):
-        """ Just setup some vars"""
-        _LOGGER.debug(f"Creating Yeelight Lamp {mac_address}")
+        _LOGGER.debug(f"Initializing Yeelight Lamp {mac_address}")
         self._client =  BleakClient(mac_address, timeout=10)
         self._mac = mac_address
         self._is_on = False
@@ -68,9 +65,7 @@ class Lamp:
         self._paired = True
         self.versions = None
         self._model = "Unknown"
-
         self._state_callbacks = []  # store func to call on state received
-        self._wait_next_cmd = 0
 
     def __str__(self):
         """ The string representation """
