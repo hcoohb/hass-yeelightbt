@@ -82,14 +82,14 @@ class Lamp:
         str_rgb = f"rgb_{self._rgb} " if self._rgb is not None else ""
         str_temp = f"temp_{self._temperature}" if self._temperature is not None else ""
         str_mode = mode_str[self._mode] if self._mode in mode_str else self._mode
+        str_bri = f"bri_{self._brightness} " if self._brightness is not None else ""
         str_rep = (
             f"<Lamp {self._mac} "
             f"{'ON' if self._is_on else 'OFF'} "
             f"mode_{str_mode} "
-            f"{str_rgb}{str_temp}"
+            f"{str_bri}{str_rgb}{str_temp}"
             f">"
         )
-
         return str_rep
 
     def add_callback_on_state_changed(self, func):
