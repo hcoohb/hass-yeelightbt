@@ -28,27 +28,29 @@ This repo is now in hacs, so just search for it, install and enjoy automatic upd
 
 ## Give bluetooth permissions for device scanning !
 
-This component use the `bluepy` python library to access bluetooth. In order to scan for new devices, it needs to have the correct permissions:
-  - For Home-assistant core installed in Virtualenv:
+Since version 0.12.0, this component uses the `bleak` python library to access bluetooth. In order to scan and interact with devices, on linux bluez utility needs to be installed and also to have the correct permissions:
+  - for **Home Assistant Operating System**:
+    It should be all setup, at least for HA 2022.7+
 
-    ```
-    sudo setcap cap_net_admin,cap_net_raw+eip /PATH-TO-HA-VENV/PATH-TO-BLUEPY-LIB/bluepy-helper
-    ```
+  - For **Home Assistant Container** in docker:
 
-  - For Home-assistant core in docker:
-
-    The docker-compose (or equivalent docker command) should have:
+    Ensure your host has the `bluetoothctl` binary on the system (coming from `bluez` or `bluez-util` package, depending on the distro).  
+    The docker-compose container (or equivalent docker command) should link */var/run/dbus* with host folder through a volume and *NET_ADMIN* permission is needed. docker compose extract:
 
     ```yaml
+    volumes:
+      - /var/run/dbus:/var/run/dbus
     cap_add:
      - NET_ADMIN
      - NET_RAW
     network_mode: host
     ```
 
-  - for HASSIO:
+  - For **Home Assistant Core** installed in a Virtualenv:
+  
+  Ensure your host has the `bluetoothctl` binary on the system (coming from `bluez` or `bluez-util` package, depending on the distro).  
+  Make sure the user running HA belongs to the `bluetooth` group.
 
-    Not too sure yet... It may have the correct permissions already ??
 
 # Homeassistant component configuration
 
@@ -89,11 +91,12 @@ Once paired you can control the lamp through HA
 - [x] Re-implement bluetooth backend for stability and optimal responsivness for yeelight
 - [x] Add component to HACS for easy install
 - [x] Allow configuration through the integration UI
-- [ ] Enable discovery of lamps in UI? (Not sure if possible)
+- [x] Enable discovery of lamps in UI
 - [ ] Look into setting up effect and flow (low priority)
 - [x] Allow pairing process with new device
 - [ ] Support for candela light? (I do not have a device, so might need help from someone with one...)
 - [x] Scale temperature range so that it matches HA UI
+- [x] Use bleak for bluetooth library
 
 # Debugging
 
