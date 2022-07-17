@@ -118,6 +118,7 @@ class Lamp:
                 _LOGGER.debug("Request Notify")
                 await self._client.start_notify(NOTIFY_UUID, self.notification_handler)
                 await asyncio.sleep(0.3)
+                _LOGGER.debug("Request Pairing")
                 await self.pair()
                 if not self.versions:
                     await self.get_version()
