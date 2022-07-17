@@ -118,8 +118,9 @@ class Lamp:
                 await self._client.connect()
                 _LOGGER.debug(f"Connected: {self._client.is_connected}")
                 self._client.set_disconnected_callback(self.diconnected_cb)
+                _LOGGER.debug("Request Notify")
                 await self._client.start_notify(NOTIFY_UUID, self.notification_handler)
-                _LOGGER.debug("Notifying")
+                await asyncio.sleep(0.3)
                 await self.pair()
                 if not self.versions:
                     await self.get_version()
@@ -193,24 +194,25 @@ class Lamp:
 
     async def pair(self):
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_PAIR, CMD_PAIR_ON)
+        _LOGGER.debug("Send Cmd: Pair")
         await self.send_cmd(bits)
 
     async def get_state(self):
         """Request the state of the lamp (send back state through notif)"""
-        _LOGGER.debug("Get_state")
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_GETSTATE, CMD_GETSTATE_SEC)
+        _LOGGER.debug("Send Cmd: Get_state")
         await self.send_cmd(bits)
 
     async def turn_on(self):
         """Turn the lamp on. (send back state through notif) """
-        _LOGGER.debug("Turn_on")
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_POWER, CMD_POWER_ON)
+        _LOGGER.debug("Send Cmd: Turn On")
         await self.send_cmd(bits, wait_before_next_cmd=1)
 
     async def turn_off(self):
         """Turn the lamp off. (send back state through notif) """
-        _LOGGER.debug("Turn_off")
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_POWER, CMD_POWER_OFF)
+        _LOGGER.debug("Send Cmd: Turn Off")
         await self.send_cmd(bits, wait_before_next_cmd=1)
 
     # set_brightness/temperature/color do NOT send a notification back.
@@ -222,6 +224,7 @@ class Lamp:
         brightness = min(100, max(0, int(brightness)))
         _LOGGER.debug(f"Set_brightness {brightness}")
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_BRIGHTNESS, brightness)
+        _LOGGER.debug("Send Cmd: Brightness")
         await self.send_cmd(bits, wait_notif=0)
         ret = True
         if ret:
@@ -235,6 +238,7 @@ class Lamp:
         kelvin = min(6500, max(1700, int(kelvin)))
         _LOGGER.debug(f"Set_temperature {kelvin}, {brightness}")
         bits = struct.pack(">BBhB13x", COMMAND_STX, CMD_TEMP, kelvin, brightness)
+        _LOGGER.debug("Send Cmd: Temperature")
         await self.send_cmd(bits, wait_notif=0)
         ret = True
         if ret:
@@ -251,6 +255,7 @@ class Lamp:
         bits = struct.pack(
             "BBBBBBB11x", COMMAND_STX, CMD_RGB, red, green, blue, 0x01, brightness
         )
+        _LOGGER.debug("Send Cmd: Color")
         await self.send_cmd(bits, wait_notif=0)
         ret = True
         if ret:
@@ -261,20 +266,20 @@ class Lamp:
 
     async def get_name(self):
         """ Get the name from the lamp (through notif)"""
-        _LOGGER.debug("Get_name")
         bits = struct.pack("BB16x", COMMAND_STX, CMD_GETNAME)
+        _LOGGER.debug("Send Cmd: Get_Name")
         await self.send_cmd(bits)
 
     async def get_version(self):
         """ Get the versions from the lamp (through notif) """
-        _LOGGER.debug("Get_version")
         bits = struct.pack("BB16x", COMMAND_STX, CMD_GETVER)
+        _LOGGER.debug("Send Cmd: Get_Version")
         await self.send_cmd(bits)
 
     async def get_serial(self):
         """ Get the serial from the lamp (through notif) """
-        _LOGGER.debug("Get_serial")
         bits = struct.pack("BB16x", COMMAND_STX, CMD_GETSERIAL)
+        _LOGGER.debug("Send Cmd: Get_Serial")
         await self.send_cmd(bits)
 
     def notification_handler(self, cHandle, data):
@@ -374,8 +379,8 @@ if __name__ == "__main__":
     # start discovery:
     # lamp_list = asyncio.run(discover_yeelight_lamps())
     # _LOGGER.info("YEELIGHT_BT scanning ends")
-
     lamp_list = [{"mac":"F8:24:41:E6:3E:39", "model":MODEL_BEDSIDE}]
+
     # now try to connect to the lamp
     if not lamp_list:
         exit
@@ -383,10 +388,32 @@ if __name__ == "__main__":
     async def test_light():
         yee = Lamp(lamp_list[0]["mac"])
         await yee.connect()
+        await asyncio.sleep(2.0)
         await yee.turn_on()
-        await asyncio.sleep(5.0)
+        await asyncio.sleep(2.0)
         await yee.turn_off()
         await asyncio.sleep(2.0)
+        await yee.turn_on()
+        await asyncio.sleep(2.0)
+        await yee.get_name()
+        await asyncio.sleep(2.0)
+        await yee.get_version()
+        await asyncio.sleep(2.0)
+        await yee.get_serial()
+        await asyncio.sleep(2.0)
+        await yee.get_state()
+        await asyncio.sleep(2.0)
+        await yee.set_brightness(20)
+        await asyncio.sleep(1.0)
+        await yee.set_brightness(70)
+        await asyncio.sleep(2.0)
+        await yee.set_temperature(6000)
+        await asyncio.sleep(2.0)
+        await yee.set_color(red=100, green=250, blue=50)
+        await asyncio.sleep(2.0)
+        await yee.turn_off()
+        await asyncio.sleep(2.0)
+        
     
     asyncio.run(test_light())
     print("The end")
