@@ -103,11 +103,13 @@ class Lamp:
         self._mode = None  # lamp not available
         self.run_state_changed_cb()
 
-    async def connect(self):
+    async def connect(self, num_tries=3):
         if self._client.is_connected:
             return
-        for i in range(3):
+        for i in range(num_tries):
             try:
+                if i>0:
+                    _LOGGER.debug(f"Connect retry {i}")
                 await self._client.disconnect()
                 self._client =  BleakClient(self._mac, timeout=10)
                 await self._client.connect()
