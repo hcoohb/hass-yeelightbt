@@ -105,6 +105,9 @@ class Lamp:
             func()
 
     def diconnected_cb(self, client):
+        #ensure we are responding to the newest client:
+        if client != self._client:
+            return
         _LOGGER.debug(f"Client with address {client.address} got disconnected!")
         self._mode = None  # lamp not available
         self._paired = PairMode.UNPAIRED
