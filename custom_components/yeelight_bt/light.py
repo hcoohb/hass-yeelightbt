@@ -112,6 +112,7 @@ class YeelightBT(LightEntity):
 
     async def async_will_remove_from_hass(self, *args) -> None:
         """Run when entity will be removed from hass."""
+        _LOGGER.debug("Running async_will_remove_from_hass")
         try:
             await self._dev.disconnect()
         except BleakError:
@@ -243,7 +244,7 @@ class YeelightBT(LightEntity):
             brightness = kwargs[ATTR_BRIGHTNESS]
             if brightness == 0:
                 _LOGGER.debug("Lamp brightness to be set to 0... so turning off")
-                await self.turn_off()
+                await self.async_turn_off()
                 return
         else:
             brightness = self._brightness
@@ -261,7 +262,8 @@ class YeelightBT(LightEntity):
                 f"Trying to set color RGB:{rgb} with brighntess:{brightness_dev}"
             )
             await self._dev.set_color(*rgb, brightness=brightness_dev)
-            self._brightness = self._dev._brightness
+            self._brightness = brightness_dev  # assuming new state before lamp update comes through
+            await asyncio.sleep(0.7)  # give time to transition before HA request update
             return
 
         if ATTR_COLOR_TEMP in kwargs:
@@ -273,13 +275,15 @@ class YeelightBT(LightEntity):
             )
             await self._dev.set_temperature(scaled_temp_in_k, brightness=brightness_dev)
             self._ct = mireds
-            self._brightness = self._dev._brightness
+            self._brightness = brightness_dev  # assuming new state before lamp update comes through
+            await asyncio.sleep(0.7)  # give time to transition before HA request update
             return
 
         if ATTR_BRIGHTNESS in kwargs:
             _LOGGER.debug(f"Trying to set brightness: {brightness_dev}")
             await self._dev.set_brightness(brightness_dev)
-            self._brightness = self._dev._brightness
+            self._brightness = brightness_dev  # assuming new state before lamp update comes through
+            await asyncio.sleep(0.7)  # give time to transition before HA request update
             return
 
         # if ATTR_EFFECT in kwargs:
