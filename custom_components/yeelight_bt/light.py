@@ -210,7 +210,7 @@ class YeelightBT(LightEntity):
         _LOGGER.debug("Got state notification from the lamp")
         self._available = self._dev.available
         if not self._available:
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()
             return
 
         self._brightness = int(round(255.0 * self._dev.brightness / 100))
@@ -222,8 +222,8 @@ class YeelightBT(LightEntity):
         else:
             self._ct = None
             self._rgb = self._dev.color
-
-        self.async_schedule_update_ha_state()
+        self.async_write_ha_state()
+        
 
     async def async_update(self):
         # Note, update should only start fetching,
