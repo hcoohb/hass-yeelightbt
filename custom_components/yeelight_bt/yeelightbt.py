@@ -73,6 +73,7 @@ class Lamp:
         self._model = "Unknown"
         self._state_callbacks = []  # store func to call on state received
         self._conn = Conn.DISCONNECTED
+        self._pair_resp_event = asyncio.Event()
 
     def __str__(self):
         """ The string representation """
@@ -134,14 +135,33 @@ class Lamp:
                 await asyncio.sleep(0.3)
                 _LOGGER.debug("Request Pairing")
                 await self.pair()
-                if not self.versions:
-                    await self.get_version()
-                    await self.get_serial()
-                break
+                if self._conn == Conn.PAIRED:
+                    #ensure we get state straight away after connection
+                    await self.get_state()
+                    if not self.versions:
+                        await self.get_version()
+                        await self.get_serial()
+                    break
             except asyncio.TimeoutError:
                 _LOGGER.error("Connection Timeout error")
             except BleakError as err:
                 _LOGGER.error(f"Connection: BleakError: {err}")
+
+    async def pair(self):
+        """Send pairing command directly"""
+        bits = struct.pack("BBB15x", COMMAND_STX, CMD_PAIR, CMD_PAIR_ON)
+        if self._conn != Conn.UNPAIRED:
+            _LOGGER.error("Pairing: Cannot request pair as not connected")
+            return
+        try:
+            self._pair_resp_event.clear()
+            await self._client.write_gatt_char(CONTROL_UUID, bits)
+            # wait after pairing to receive notif of pair result:
+            await self._pair_resp_event.wait()
+        except asyncio.TimeoutError:
+            _LOGGER.error("Pairing: Timeout error")
+        except BleakError as err:
+            _LOGGER.error(f"Pairing: BleakError: {err}")
 
     async def disconnect(self):
         try:
@@ -205,21 +225,6 @@ class Lamp:
             except BleakError as err:
                 _LOGGER.error(f"Send Cmd: BleakError: {err}")
         return False
-
-    async def pair(self):
-        """Send pairing command directly"""
-        bits = struct.pack("BBB15x", COMMAND_STX, CMD_PAIR, CMD_PAIR_ON)
-        if self._conn != Conn.UNPAIRED:
-            _LOGGER.error("Pairing: Cannot request pair as not connected")
-            return
-        try:
-            await self._client.write_gatt_char(CONTROL_UUID, bits)
-            # wait after pairing to receive notif:
-            await asyncio.sleep(0.5)
-        except asyncio.TimeoutError:
-            _LOGGER.error("Pairing: Timeout error")
-        except BleakError as err:
-            _LOGGER.error(f"Pairing: BleakError: {err}")
 
     async def get_state(self):
         """Request the state of the lamp (send back state through notif)"""
@@ -336,18 +341,22 @@ class Lamp:
             if pair_mode == 0x02:
                 _LOGGER.debug("Yeelight pairing was successful!")
                 self._conn = Conn.PAIRED
+                self._pair_resp_event.set()
             if pair_mode == 0x03:
                 _LOGGER.error("Yeelight is not paired! The next connection will attempt a new pairing request.")
                 self._mode = None  # unavailable in HA
                 self._conn = Conn.UNPAIRED
+                self._pair_resp_event.set()
             if pair_mode == 0x04:
                 _LOGGER.debug("Yeelight is already paired")
                 self._conn = Conn.PAIRED
+                self._pair_resp_event.set()
             if pair_mode == 0x06 or pair_mode == 0x07:
                 _LOGGER.error(
                     "The pairing request returned unexpected results. Please reset the lamp (https://www.youtube.com/watch?v=PnjcOSgnbAM) and the pairing process will be attempted again on next connection."
                 )
                 self._conn = Conn.UNPAIRED
+                self._pair_resp_event.set()
 
         if res_type == RES_GETVER:
             self.versions = struct.unpack("xxBHHHH6x", data)
