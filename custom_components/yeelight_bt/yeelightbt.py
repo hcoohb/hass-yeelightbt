@@ -41,10 +41,11 @@ RES_GETTIME = 0x62
 MODEL_BEDSIDE = "Bedside"
 MODEL_CANDELA = "Candela"
 
-class PairMode(enum.Enum):
-    UNPAIRED = 1
-    PAIRING = 2
-    PAIRED = 3
+class Conn(enum.Enum):
+    DISCONNECTED = 1
+    UNPAIRED = 2
+    PAIRING = 3
+    PAIRED = 4
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,7 +72,7 @@ class Lamp:
         self.versions = None
         self._model = "Unknown"
         self._state_callbacks = []  # store func to call on state received
-        self._paired = PairMode.UNPAIRED
+        self._conn = Conn.DISCONNECTED
 
     def __str__(self):
         """ The string representation """
@@ -110,12 +111,12 @@ class Lamp:
             return
         _LOGGER.debug(f"Client with address {client.address} got disconnected!")
         self._mode = None  # lamp not available
-        self._paired = PairMode.UNPAIRED
+        self._conn = Conn.DISCONNECTED
         self.run_state_changed_cb()
 
     async def connect(self, num_tries=3):
-        if self._client.is_connected and self._paired != PairMode.UNPAIRED:
-            # We do not try to reconnect if we are connected and (paired or in pairing)
+        if self._conn == Conn.PAIRING or self._conn == Conn.PAIRED:
+            # We do not try to reconnect if we are disonnected or unpaired
             return
         _LOGGER.debug("Initiating new connection")
         for i in range(num_tries):
@@ -125,6 +126,7 @@ class Lamp:
                 await self.disconnect()
                 self._client =  BleakClient(self._mac, timeout=10)
                 await self._client.connect()
+                self._conn = Conn.UNPAIRED
                 _LOGGER.debug(f"Connected: {self._client.is_connected}")
                 self._client.set_disconnected_callback(self.diconnected_cb)
                 _LOGGER.debug("Request Notify")
@@ -148,7 +150,7 @@ class Lamp:
             _LOGGER.error("Disconnection: Timeout error")
         except BleakError as err:
             _LOGGER.error(f"Disconnection: BleakError: {err}")
-        self._paired = PairMode.UNPAIRED
+        self._conn = Conn.DISCONNECTED
 
 
     @property
@@ -193,7 +195,7 @@ class Lamp:
 
     async def send_cmd(self, bits, wait_notif: float = 0.5):
         await self.connect()
-        if self._client.is_connected and self._paired == PairMode.PAIRED:
+        if self._conn == Conn.PAIRED:
             try:
                 await self._client.write_gatt_char(CONTROL_UUID, bits)
                 await asyncio.sleep(wait_notif)
@@ -207,7 +209,7 @@ class Lamp:
     async def pair(self):
         """Send pairing command directly"""
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_PAIR, CMD_PAIR_ON)
-        if not self._client.is_connected:
+        if self._conn != Conn.UNPAIRED:
             _LOGGER.error("Pairing: Cannot request pair as not connected")
             return
         try:
@@ -311,11 +313,11 @@ class Lamp:
             if self._model == MODEL_CANDELA:
                 self._brightness = state[1]
                 self._mode = (
-                    state[2] if self._paired == PairMode.PAIRED else None
+                    state[2] if self._conn == Conn.PAIRED else None
                 )  # Not entirely sure this is the mode...
                 # Candela seems to also give something in state 3 and 4...
             else:
-                self._mode = state[1] if self._paired == PairMode.PAIRED else None
+                self._mode = state[1] if self._conn == Conn.PAIRED else None
                 self._rgb = (state[2], state[3], state[4])  # , state[5])
                 self._brightness = state[6]
                 self._temperature = state[7]
@@ -330,22 +332,22 @@ class Lamp:
                     "Yeelight pairing request: Push the little button of the lamp now! (All commands will be ignored until the lamp is paired)"
                 )
                 self._mode = None  # unavailable in HA for now
-                self._paired = PairMode.PAIRING
+                self._conn = Conn.PAIRING
             if pair_mode == 0x02:
                 _LOGGER.debug("Yeelight pairing was successful!")
-                self._paired = PairMode.PAIRED
+                self._conn = Conn.PAIRED
             if pair_mode == 0x03:
                 _LOGGER.error("Yeelight is not paired! The next connection will attempt a new pairing request.")
                 self._mode = None  # unavailable in HA
-                self._paired = PairMode.UNPAIRED
+                self._conn = Conn.UNPAIRED
             if pair_mode == 0x04:
                 _LOGGER.debug("Yeelight is already paired")
-                self._paired = PairMode.PAIRED
+                self._conn = Conn.PAIRED
             if pair_mode == 0x06 or pair_mode == 0x07:
                 _LOGGER.error(
                     "The pairing request returned unexpected results. Please reset the lamp (https://www.youtube.com/watch?v=PnjcOSgnbAM) and the pairing process will be attempted again on next connection."
                 )
-                self._paired = PairMode.UNPAIRED
+                self._conn = Conn.UNPAIRED
 
         if res_type == RES_GETVER:
             self.versions = struct.unpack("xxBHHHH6x", data)
