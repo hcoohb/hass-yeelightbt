@@ -2,8 +2,9 @@ name: Label Manager
 
 on: 
   push:
-    branches:
-      - main
+    paths:
+    # run only when labels files is modified
+      - '.github/labels.yml'
 
 jobs:
   labeler:

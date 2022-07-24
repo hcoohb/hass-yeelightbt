@@ -35,7 +35,7 @@
   description: Further information is requested
   color: d876e3
 - name: chore
-  description: A code change that neither fixes a bug nor adds a feature
+  description: A code change that neither fixes a bug nor adds a feature. Refactoring
   color: d4c5f9
 - name: removal
   description: Removals and Deprecations
