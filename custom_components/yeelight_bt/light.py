@@ -47,7 +47,7 @@ SUPPORT_YEELIGHT_BEDSIDE = SUPPORT_YEELIGHT_BT | SUPPORT_COLOR_TEMP | SUPPORT_CO
 _LOGGER = logging.getLogger(__name__)
 
 
-def async_setup_platform(hass, config, add_entities, discovery_info=None):
+async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Setup the yeelightbt light platform."""
     mac = config[CONF_MAC]
     name = config[CONF_NAME]
