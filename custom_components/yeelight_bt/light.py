@@ -255,6 +255,9 @@ class YeelightBT(LightEntity):
             await self._dev.turn_on()
         self._is_on = True
 
+        if any(keyword in kwargs for keyword in (ATTR_HS_COLOR, ATTR_COLOR_TEMP, ATTR_BRIGHTNESS)):
+            await asyncio.sleep(0.5)  # wait for the lamp to turn on
+
         if ATTR_HS_COLOR in kwargs:
             rgb = color_hs_to_RGB(*kwargs.get(ATTR_HS_COLOR))
             self._rgb = rgb
