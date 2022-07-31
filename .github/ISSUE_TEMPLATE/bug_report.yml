@@ -1,0 +1,64 @@
+name: Bug report
+description: File a bug/issue
+title: "[Bug] <title>"
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+  - type: dropdown
+    id: light_type
+    attributes:
+      label: Light
+      description: "What type of light is this issue about?"
+      options:
+        - Yeelight Bedside
+        - Yeelight Candela
+  - type: dropdown
+    id: ha_type
+    attributes:
+      label: Home-assistant installation type
+      description: What home-assistant type are you running?
+      options:
+        - Home Assistant Operating System (HAOS)
+        - Home Assistant Container (docker)
+        - Home Assistant Core (Virtualenv)
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home-assistant version
+      description: The version of Home-assistant
+      placeholder: ex. 2022.6.0 or 2022.7.7, ...
+  - type: textarea
+    id: issue_txt
+    attributes:
+      label: Describe the issue
+      description: A clear and concise description of what the issue is.
+      placeholder: Describe the issue and what was expected
+    validations:
+      required: true
+  - type: checkboxes
+    id: debugging_steps
+    attributes:
+      label: "Debugging procedure followed:"
+      description: "Did you followed all steps from the [debugging procedure](https://github.com/hcoohb/hass-yeelightbt#debugging), namely:"
+      options:
+        - label: 1- Smartphone will not connect with lamp
+        - label: 2- The Yeelight_bt integration has been removed from HA.
+        - label: 3- HA has access to the bluetooth adapter (followed the installation steps if not on HAOS).
+        - label: 4- No other bluetooth integration are using something else than bleak library for bluetooth. If unsure, disable them.
+        - label: 5- The logging has been changed in HA to allow debugging of this component and bleak.
+        - label: 6- The light has been fully reset so that it is not paired with any device.
+        - label: 7- Restart HA
+        - label: 8- Reinstall the yeelight_bt integration and find the light through a scan.
+        - label: 9- Pairing the lamp succeeded
+  - type: textarea
+    id: additional_txt
+    attributes:
+      label: Any additional comments
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs from the issue
+      description: Paste the log or a pastebin link, thanks
