@@ -11,7 +11,7 @@ Originally based on the work by Teemu Rytilahti [python-yeelightbt](https://gith
 
 This custom component can be installed in two different ways: `manually` or `using HACS`
 
-## 1. Installation using HACS
+## 1. Installation using HACS (recommended)
 
 This repo is now in hacs, so just search for it, install and enjoy automatic updates.
 
@@ -100,14 +100,25 @@ I only have one yeelight bedside, so if you have issues with candella or multipl
 
 # Debugging
 
-In order to get more information on what is going on, the debugging flag can be enabled by placing in the `configuration.yaml` of Home assistant:
+Please ensure the following:
+1. The xiaomi yeelight app is not being used and force shut (or even better to turn bt off if unsure). 
+2. the Yeelight_bt integration has been removed from HA.
+3. HA has access to the bluetooth adapter (follow the section above in not on HAOS).
+4. No other bluetooth integration are using something else than bleak library for bluetooth. If unsure, disable them.
+5. The logging has been changed in HA to allow debugging of this component and bleak:  
+   In order to get more information on what is going on, the debugging flag can be enabled by placing in the `configuration.yaml` of Home assistant:
 
-```yaml
-logger:
-  default: error
-  logs:
-    custom_components.yeelight_bt: debug
-    bleak: debug
-```
+   ```yaml
+   logger:
+     default: error
+     logs:
+       custom_components.yeelight_bt: debug
+       bleak: debug
+   ```
 
-NOTE: this will generate A LOT of debugging messages in the logs, so it is not recommended to use for a long time
+   NOTE: this will generate A LOT of debugging messages in the logs, so it is not recommended to use for a long time
+
+6. The light has been fully reset so that it is not paired with any device.
+7. Restart HA
+8. Reinstall the yeelight_bt integration and find the light through a scan.
+9. check the logs and report. Thanks
