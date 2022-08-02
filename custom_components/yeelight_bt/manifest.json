@@ -7,7 +7,7 @@
   "dependencies": [],
   "codeowners": ["@hcoohb"],
   "requirements": ["bleak>=0.14.3"],
-  "version": "1.0.1",
+  "version": "1.0.2-candelatest1",
   "iot_class": "local_polling",
   "loggers": ["bleak"]
 }

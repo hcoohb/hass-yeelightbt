@@ -13,6 +13,8 @@ import logging
 # 3rd party imports
 from bleak import BleakClient, BleakError
 
+BLEAK_TIMEOUT = 10
+
 NOTIFY_UUID = "8f65073d-9f57-4aaa-afea-397d19d5bbeb"
 CONTROL_UUID = "aa7d3f34-2d4f-41e0-807f-52fbf8cf7443"
 
@@ -126,10 +128,11 @@ class Lamp:
                     _LOGGER.debug(f"Connect retry {i}")
                 await self.disconnect()
                 self._client =  BleakClient(self._mac, timeout=10)
-                await self._client.connect()
+                await self._client.connect(timeout=BLEAK_TIMEOUT)
                 self._conn = Conn.UNPAIRED
                 _LOGGER.debug(f"Connected: {self._client.is_connected}")
                 self._client.set_disconnected_callback(self.diconnected_cb)
+                asyncio.sleep(15) # temporary to see if the connection or the request fails
                 _LOGGER.debug("Request Notify")
                 await self._client.start_notify(NOTIFY_UUID, self.notification_handler)
                 await asyncio.sleep(0.3)
