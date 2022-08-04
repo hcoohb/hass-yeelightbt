@@ -1,10 +1,9 @@
 > **Warning**
 > The bluetooth landscape in HA is currently evolving and at the moment this integration needs to be updated to be fully compatible.  
 > Current status:
-> - For HA prior to 2022.7.0 => use relase v0.13.0
-> - For HA 2022.7.0 => use relase v1.0.0 (Candela does not seem to work)
+> - For HA prior to 2022.7.0 => use relase v0.11.3
+> - For HA 2022.7.0 => use relase v1.0.1 (Candela does not seem to work)
 > - For HA 2022.8.0+ => no compatible verison yet it seems
-
 
 
 
