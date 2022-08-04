@@ -12,6 +12,7 @@ import logging
 
 # 3rd party imports
 from bleak import BleakClient, BleakError
+from bleak.backends.device import BLEDevice
 
 NOTIFY_UUID = "8f65073d-9f57-4aaa-afea-397d19d5bbeb"
 CONTROL_UUID = "aa7d3f34-2d4f-41e0-807f-52fbf8cf7443"
@@ -60,10 +61,11 @@ class Lamp:
     MODE_WHITE = 0x02
     MODE_FLOW = 0x03
 
-    def __init__(self, mac_address):
-        _LOGGER.debug(f"Initializing Yeelight Lamp {mac_address}")
-        self._client =  BleakClient(mac_address, timeout=10)
-        self._mac = mac_address
+    def __init__(self, ble_device: BLEDevice):
+        self._client: BleakClient | None = None
+        self._ble_device = ble_device
+        self._mac = self._ble_device.address
+        _LOGGER.debug(f"Initializing Yeelight Lamp {self._ble_device.name} ({self._mac})")
         self._is_on = False
         self._mode = None
         self._rgb = None
@@ -124,9 +126,12 @@ class Lamp:
             try:
                 if i>0:
                     _LOGGER.debug(f"Connect retry {i}")
-                await self.disconnect()
-                self._client =  BleakClient(self._mac, timeout=10)
-                await self._client.connect()
+                if self._client:
+                    await self.disconnect()
+                self._client =  BleakClient(self._ble_device)
+                _LOGGER.debug(f"Connecting now:...")
+                await self._client.connect(timeout=10)
+                _LOGGER.debug(f"Connected yeah")
                 self._conn = Conn.UNPAIRED
                 _LOGGER.debug(f"Connected: {self._client.is_connected}")
                 self._client.set_disconnected_callback(self.diconnected_cb)
@@ -371,22 +376,29 @@ class Lamp:
             _LOGGER.info(f"Lamp {self._mac} exposes serial:{self.serial}")
 
 
-async def discover_yeelight_lamps():
+async def find_device_by_address(address: str, timeout:float=20.0):
+        from bleak import BleakScanner
+        return await BleakScanner.find_device_by_address(address.upper(), timeout=timeout)
+
+
+async def discover_yeelight_lamps(scanner = None):
     """Scanning feature
     Scan the BLE neighborhood for an Yeelight lamp
     This method requires the script to be launched as root
     Returns the list of nearby lamps
     """
     lamp_list = []
-    from bleak import BleakScanner
+    if scanner is None:
+        from bleak import BleakScanner
+        scanner = BleakScanner
 
-    devices = await BleakScanner.discover()
+    devices = await scanner.discover()
     for d in devices:
         if d.name.startswith("XMCTD"):
-            lamp_list.append({"mac": d.address, "model": MODEL_BEDSIDE})
+            lamp_list.append({"ble_device":d, "model": MODEL_BEDSIDE})
             _LOGGER.info(f"found {MODEL_BEDSIDE} with mac: {d.address}, details:{d.details}")
         if "yeelight_ms" in d.name:
-            lamp_list.append({"mac": d.address, "model": MODEL_CANDELA})
+            lamp_list.append({"ble_device":d, "model": MODEL_CANDELA})
             _LOGGER.info(f"found {MODEL_CANDELA} with mac: {d.address}, details:{d.details}")
     return lamp_list
 
@@ -404,14 +416,30 @@ if __name__ == "__main__":
     # start discovery:
     # lamp_list = asyncio.run(discover_yeelight_lamps())
     # _LOGGER.info("YEELIGHT_BT scanning ends")
-    lamp_list = [{"mac":"F8:24:41:E6:3E:39", "model":MODEL_BEDSIDE}]
+    # from bleak import BleakScanner
+    # device = asyncio.run( BleakScanner.find_device_by_address("F8:24:41:E6:3E:39", timeout=20.0))
+    # print("DEVICE:")
+    # print(device)
+    # print("DEVICE END")
+    # lamp_list = [device]
 
-    # now try to connect to the lamp
-    if not lamp_list:
-        exit
+    # # now try to connect to the lamp
+    # if not lamp_list:
+    #     exit
     
     async def test_light():
-        yee = Lamp(lamp_list[0]["mac"])
+
+
+
+        from bleak import BleakScanner
+        device = await find_device_by_address("F8:24:41:E6:3E:39")
+        print("DEVICE:")
+        print(device)
+        print("DEVICE END")
+        lamp_list = [{"ble_device": device, "model": MODEL_BEDSIDE}]
+
+
+        yee = Lamp(lamp_list[0]["ble_device"])
         await yee.connect()
         await asyncio.sleep(2.0)
         await yee.turn_on()

@@ -3,6 +3,10 @@
 import logging
 import asyncio
 
+from homeassistant.components import bluetooth
+from homeassistant.components.bluetooth import (
+    DOMAIN as DOMAIN_BT
+)
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.const import CONF_NAME, CONF_MAC, EVENT_HOMEASSISTANT_STOP
@@ -30,7 +34,7 @@ from homeassistant.util.color import (
     color_RGB_to_hs,
 )
 
-from .yeelightbt import Lamp, MODEL_CANDELA, BleakError
+from .yeelightbt import Lamp, MODEL_CANDELA, BleakError, find_device_by_address
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
@@ -67,17 +71,30 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     )
     name = config_entry.data.get(CONF_NAME) or DOMAIN
     mac = config_entry.data.get(CONF_MAC)
-    entity = YeelightBT(name, mac)
+    address = mac
+
+    # try to get ble_device using HA scanner first
+    ble_device = bluetooth.async_ble_device_from_address(hass, address.upper())
+    _LOGGER.debug(f"BLE device through HA bt: {ble_device}")
+    if ble_device is None:
+        # if bluetooth not enabled, we get ble_device from bleak directly
+        ble_device = await find_device_by_address(address.upper())
+        _LOGGER.debug(f"BLE device through bleak directly: {ble_device}")
+    if not ble_device:
+        raise ConfigEntryNotReady(
+            f"Could not find Yeelight with address {address}"
+        )
+    entity = YeelightBT(name, ble_device)
     async_add_entities([entity])
 
 
 class YeelightBT(LightEntity):
     """Represenation of a light."""
 
-    def __init__(self, name, mac):
+    def __init__(self, name, ble_device):
         """Initialize the light."""
         self._name = name
-        self._mac = mac
+        self._mac = ble_device.address
         self.entity_id = generate_entity_id(ENTITY_ID_FORMAT, self._name, [])
         self._is_on = None
         self._rgb = None
@@ -88,7 +105,7 @@ class YeelightBT(LightEntity):
         self._available = False
 
         _LOGGER.info(f"Initializing YeelightBT Entity: {self.name}, {self._mac}")
-        self._dev = Lamp(self._mac)
+        self._dev = Lamp(ble_device)
         self._dev.add_callback_on_state_changed(self._status_cb)
         self._prop_min_max = self._dev.get_prop_min_max()
         self._min_mireds = kelvin_to_mired(
