@@ -1,5 +1,5 @@
 {
   "name": "Yeelight bluetooth",
   "render_readme": true,
-  "homeassistant": "0.109.0"
+  "homeassistant": "2022.8.0"
 }

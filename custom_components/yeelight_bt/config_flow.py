@@ -4,6 +4,7 @@ from homeassistant import config_entries
 from homeassistant.const import CONF_NAME, CONF_MAC
 import voluptuous as vol
 from homeassistant.helpers import device_registry as dr
+from homeassistant.components import bluetooth
 
 from .const import DOMAIN, CONF_ENTRY_METHOD, CONF_ENTRY_SCAN, CONF_ENTRY_MANUAL
 
@@ -49,17 +50,26 @@ class Yeelight_btConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: 
         errors = {}
         if user_input is None:
             return self.async_show_form(step_id="scan")
-        _LOGGER.debug("Starting a scan for Yeelight Bt devices")
+        scanner = bluetooth.async_get_scanner(self.hass)
+        _LOGGER.debug("Preparing for a scan")
+        # first we check if scanner from HA bluetooth is enabled
         try:
-            devices = await discover_yeelight_lamps()
+            devs=scanner.discovered_devices # raises Attribute errors if bluetooth not configured
+            _LOGGER.debug(f"Using HA scanner {scanner}")
+        except AttributeError:
+            scanner = None
+            _LOGGER.debug(f"Using bleak scanner directly")
+        try:
+            _LOGGER.debug("Starting a scan for Yeelight Bt devices")
+            ble_devices = await discover_yeelight_lamps(scanner)
         except BleakError as err:
             _LOGGER.error(f"Bluetooth connection error while trying to scan: {err}")
             errors["base"] = "BleakError"
             return self.async_show_form(step_id="scan", errors=errors)
 
-        if not devices:
+        if not ble_devices:
             return self.async_abort(reason="no_devices_found")
-        self.devices = [f"{dev['mac']} ({dev['model']})" for dev in devices]
+        self.devices = [f"{dev['ble_device'].address} ({dev['model']})" for dev in ble_devices]
         # TODO: filter existing devices ?
 
         return await self.async_step_device()
