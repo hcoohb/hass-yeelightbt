@@ -73,6 +73,10 @@ class Lamp:
         self._temperature = None
         self.versions = None
         self._model = "Unknown"
+        if self._ble_device.name.startswith("XMCTD_"):
+            self._model = MODEL_BEDSIDE
+        if self._ble_device.name.startswith("yeelight_ms"):
+            self._model = MODEL_CANDELA
         self._state_callbacks = []  # store func to call on state received
         self._conn = Conn.DISCONNECTED
         self._pair_resp_event = asyncio.Event()
@@ -366,10 +370,6 @@ class Lamp:
         if res_type == RES_GETVER:
             self.versions = struct.unpack("xxBHHHH6x", data)
             _LOGGER.info(f"Lamp {self._mac} exposes versions:{self.versions}")
-            self._model = MODEL_BEDSIDE
-            if self.versions[0] > 2:
-                self._model = MODEL_CANDELA
-            _LOGGER.info(f"Lamp {self._mac} is a '{self._model}'")
 
         if res_type == RES_GETSERIAL:
             self.serial = struct.unpack("xxB15x", data)[0]
