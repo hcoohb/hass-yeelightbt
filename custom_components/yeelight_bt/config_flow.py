@@ -8,9 +8,14 @@ from homeassistant.components import bluetooth
 
 from .const import DOMAIN, CONF_ENTRY_METHOD, CONF_ENTRY_SCAN, CONF_ENTRY_MANUAL
 
+
+from homeassistant.data_entry_flow import FlowResult
+from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
+
 from .yeelightbt import (
     discover_yeelight_lamps,
     BleakError,
+    model_from_name
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -26,6 +31,17 @@ class Yeelight_btConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: 
     def data_schema(self):
         """Return the data schema for integration."""
         return vol.Schema({vol.Required(CONF_NAME): str, vol.Required(CONF_MAC): str})
+
+    async def async_step_bluetooth(
+        self, discovery_info: BluetoothServiceInfoBleak
+    ) -> FlowResult:
+        """Handle the bluetooth discovery step."""
+        _LOGGER.debug("Discovered bluetooth device: %s", discovery_info)
+        await self.async_set_unique_id(dr.format_mac(discovery_info.address))
+        self._abort_if_unique_id_configured()
+        
+        self.devices = [f"{discovery_info.address} ({model_from_name(discovery_info.name)})"]
+        return await self.async_step_device()
 
     async def async_step_user(self, user_input=None):
         """Handle a flow initialized by the user."""
