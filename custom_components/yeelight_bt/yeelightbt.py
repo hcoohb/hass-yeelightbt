@@ -85,6 +85,7 @@ class Lamp:
         self._state_callbacks = []  # store func to call on state received
         self._conn = Conn.DISCONNECTED
         self._pair_resp_event = asyncio.Event()
+        self._read_service = False
 
     def __str__(self):
         """ The string representation """
@@ -140,10 +141,15 @@ class Lamp:
                 self._client =  BleakClient(self._ble_device)
                 _LOGGER.debug(f"Connecting now:...")
                 await self._client.connect(timeout=10)
-                _LOGGER.debug(f"Connected yeah")
                 self._conn = Conn.UNPAIRED
                 _LOGGER.debug(f"Connected: {self._client.is_connected}")
                 self._client.set_disconnected_callback(self.diconnected_cb)
+                # read services:
+                if not self._read_service:
+                    await self.read_services()
+                    self._read_service = True
+                    await asyncio.sleep(0.2)
+
                 _LOGGER.debug("Request Notify")
                 await self._client.start_notify(NOTIFY_UUID, self.notification_handler)
                 await asyncio.sleep(0.3)
@@ -379,6 +385,39 @@ class Lamp:
         if res_type == RES_GETSERIAL:
             self.serial = struct.unpack("xxB15x", data)[0]
             _LOGGER.info(f"Lamp {self._mac} exposes serial:{self.serial}")
+
+    async def read_services(self):
+        if self._conn != Conn.UNPAIRED:
+            return
+        for service in self._client.services:
+            _LOGGER.info(f"[Service] {service}")
+            for char in service.characteristics:
+                if "read" in char.properties:
+                    try:
+                        value = bytes(await self._client.read_gatt_char(char.uuid))
+                        _LOGGER.info(
+                            f"__[Characteristic] {char} ({','.join(char.properties)}), Value: {value}"
+                        )
+                    except Exception as e:
+                        _LOGGER.error(
+                            f"__[Characteristic] {char} ({','.join(char.properties)}), Value: {e}"
+                        )
+
+                else:
+                    value = None
+                    _LOGGER.info(
+                        f"__[Characteristic] {char} ({','.join(char.properties)}), Value: {value}"
+                    )
+
+                for descriptor in char.descriptors:
+                    try:
+                        value = bytes(
+                            await self._client.read_gatt_descriptor(descriptor.handle)
+                        )
+                        _LOGGER.info(f"____[Descriptor] {descriptor}) | Value: {value}")
+                    except Exception as e:
+                        _LOGGER.error(f"____[Descriptor] {descriptor}) | Value: {e}")
+
 
 
 async def find_device_by_address(address: str, timeout:float=20.0):
