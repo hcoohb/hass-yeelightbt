@@ -41,6 +41,7 @@ RES_GETTIME = 0x62
 
 MODEL_BEDSIDE = "Bedside"
 MODEL_CANDELA = "Candela"
+MODEL_UNKNOWN = "Unknown"
 
 class Conn(enum.Enum):
     DISCONNECTED = 1
@@ -50,6 +51,14 @@ class Conn(enum.Enum):
 
 
 _LOGGER = logging.getLogger(__name__)
+
+def model_from_name(ble_name:str):
+    model = MODEL_UNKNOWN
+    if ble_name.startswith("XMCTD_"):
+        model = MODEL_BEDSIDE
+    if ble_name.startswith("yeelight_ms"):
+        model = MODEL_CANDELA
+    return model
 
 
 class Lamp:
@@ -72,11 +81,7 @@ class Lamp:
         self._brightness = None
         self._temperature = None
         self.versions = None
-        self._model = "Unknown"
-        if self._ble_device.name.startswith("XMCTD_"):
-            self._model = MODEL_BEDSIDE
-        if self._ble_device.name.startswith("yeelight_ms"):
-            self._model = MODEL_CANDELA
+        self._model = model_from_name(self._ble_device.name)
         self._state_callbacks = []  # store func to call on state received
         self._conn = Conn.DISCONNECTED
         self._pair_resp_event = asyncio.Event()
@@ -394,12 +399,10 @@ async def discover_yeelight_lamps(scanner = None):
 
     devices = await scanner.discover()
     for d in devices:
-        if d.name.startswith("XMCTD"):
-            lamp_list.append({"ble_device":d, "model": MODEL_BEDSIDE})
-            _LOGGER.info(f"found {MODEL_BEDSIDE} with mac: {d.address}, details:{d.details}")
-        if "yeelight_ms" in d.name:
-            lamp_list.append({"ble_device":d, "model": MODEL_CANDELA})
-            _LOGGER.info(f"found {MODEL_CANDELA} with mac: {d.address}, details:{d.details}")
+        model = model_from_name(d.name)
+        if model != MODEL_UNKNOWN:
+            lamp_list.append({"ble_device":d, "model": model})
+            _LOGGER.info(f"found {model} with mac: {d.address}, details:{d.details}")
     return lamp_list
 
 
