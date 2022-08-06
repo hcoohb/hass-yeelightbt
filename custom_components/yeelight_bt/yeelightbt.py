@@ -153,8 +153,27 @@ class Lamp:
                 _LOGGER.debug("Request Notify")
                 await self._client.start_notify(NOTIFY_UUID, self.notification_handler)
                 await asyncio.sleep(0.3)
+                if self._model == MODEL_CANDELA or self._model == MODEL_BEDSIDE:
+                    # try to read state before pairing
+                    _LOGGER.debug("Request State")
+                    bits = struct.pack("BBB15x", COMMAND_STX, CMD_GETSTATE, CMD_GETSTATE_SEC)
+                    await self._client.write_gatt_char(CONTROL_UUID, bits)
+                    await asyncio.sleep(0.3)
                 _LOGGER.debug("Request Pairing")
                 await self.pair()
+                await asyncio.sleep(0.3)
+                _LOGGER.debug(f"Connection status: {self._conn}")
+                
+                if self._model == MODEL_CANDELA or self._model == MODEL_BEDSIDE:
+                    # Can the candela be controled without pairing?
+                    # turn on and off:
+                    conn = self._conn
+                    self._conn == Conn.PAIRED
+                    await self.turn_on()
+                    await asyncio.sleep(2)
+                    await self.turn_off()
+                    self._conn == conn
+
                 if self._conn == Conn.PAIRED:
                     #ensure we get state straight away after connection
                     await self.get_state()
