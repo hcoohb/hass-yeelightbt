@@ -39,5 +39,7 @@ change-title-escapes: '\<*_&' # You can add # and @ to disable mentions, and add
  
 template: |
   ## Changes from $PREVIOUS_TAG to v$RESOLVED_VERSION
+  
   $CHANGES
+  
   **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
