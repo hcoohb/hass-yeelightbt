@@ -3,10 +3,6 @@
 import logging
 import asyncio
 
-from homeassistant.components import bluetooth
-from homeassistant.components.bluetooth import (
-    DOMAIN as DOMAIN_BT
-)
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.const import CONF_NAME, CONF_MAC, EVENT_HOMEASSISTANT_STOP
@@ -34,7 +30,7 @@ from homeassistant.util.color import (
     color_RGB_to_hs,
 )
 
-from .yeelightbt import Lamp, MODEL_CANDELA, BleakError, find_device_by_address
+from .yeelightbt import Lamp, MODEL_CANDELA, BleakError
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
@@ -55,7 +51,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     """Setup the yeelightbt light platform."""
     mac = config[CONF_MAC]
     name = config[CONF_NAME]
-
+    _LOGGER.debug(f"Setting up light platform for device {mac}")
     if discovery_info is not None:
         _LOGGER.debug("Adding autodetected %s", discovery_info["hostname"])
         name = DOMAIN
@@ -63,29 +59,18 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     async_add_entities([YeelightBT(name, mac)])
 
 
-async def async_setup_entry(hass, config_entry, async_add_entities):
+async def async_setup_entry(hass, entry, async_add_entities):
     """Set up the platform from config_entry."""
     _LOGGER.debug(
-        f"async_setup_entry:setting up the config entry {config_entry.title} "
-        f"with data:{config_entry.data}"
+        f"light async_setup_entry: setting up the config entry {entry.title} "
+        f"with data:{entry.data}"
     )
-    name = config_entry.data.get(CONF_NAME) or DOMAIN
-    mac = config_entry.data.get(CONF_MAC)
-    address = mac
+    name = entry.data.get(CONF_NAME) or DOMAIN
+    ble_device = hass.data[DOMAIN][entry.entry_id]
 
-    # try to get ble_device using HA scanner first
-    ble_device = bluetooth.async_ble_device_from_address(hass, address.upper())
-    _LOGGER.debug(f"BLE device through HA bt: {ble_device}")
-    if ble_device is None:
-        # if bluetooth not enabled, we get ble_device from bleak directly
-        ble_device = await find_device_by_address(address.upper())
-        _LOGGER.debug(f"BLE device through bleak directly: {ble_device}")
-    if not ble_device:
-        raise ConfigEntryNotReady(
-            f"Could not find Yeelight with address {address}"
-        )
     entity = YeelightBT(name, ble_device)
     async_add_entities([entity])
+    return True
 
 
 class YeelightBT(LightEntity):
