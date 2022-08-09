@@ -15,12 +15,15 @@ body:
       options:
         - Yeelight Bedside
         - Yeelight Candela
+        - Both
   - type: input
     id: yeelight_bt_version
     attributes:
-      label: Version of the `Yeelight Bt` integration installed
-      description: The version of Yeelight Bt integration
+      label: Yeelight Bt version
+      description: The version of `Yeelight Bt` integration
       placeholder: ex. v1.0.1 or v1.1.0 ...
+    validations:
+      required: true
   - type: dropdown
     id: ha_type
     attributes:
@@ -30,12 +33,26 @@ body:
         - Home Assistant Operating System (HAOS)
         - Home Assistant Container (docker)
         - Home Assistant Core (Virtualenv)
+    validations:
+      required: true
   - type: input
     id: ha_version
     attributes:
       label: Home-assistant version
       description: The version of Home-assistant
       placeholder: ex. 2022.6.0 or 2022.7.7, ...
+    validations:
+      required: true
+  - type: dropdown
+    id: bluetooth_integration
+    attributes:
+      label: Home-assistant bluetooth integration (2022.8+)
+      description: Have you enabled/configured the HA bluetooth integration?
+      options:
+        - Yes
+        - No
+    validations:
+      required: true
   - type: textarea
     id: issue_txt
     attributes:
