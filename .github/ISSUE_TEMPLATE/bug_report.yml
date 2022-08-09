@@ -49,7 +49,7 @@ body:
       label: Home-assistant bluetooth integration (2022.8+)
       description: Have you enabled/configured the HA bluetooth integration?
       options:
-        - Yes
+        - "Yes"
         - No
     validations:
       required: true
