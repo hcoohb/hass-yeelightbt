@@ -1,0 +1,7 @@
+# requirements for development
+pre-commit
+# optional for live feedback in IDE
+black
+mypy
+flake8
+isort
