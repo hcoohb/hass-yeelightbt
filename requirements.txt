@@ -1,0 +1,2 @@
+# project requirements
+bleak>=0.15.0
