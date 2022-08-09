@@ -33,6 +33,7 @@ body:
         - Home Assistant Operating System (HAOS)
         - Home Assistant Container (docker)
         - Home Assistant Core (Virtualenv)
+        - Other (please describe)
     validations:
       required: true
   - type: input
