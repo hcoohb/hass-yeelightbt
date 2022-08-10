@@ -3,15 +3,18 @@ Creator : hcoohb
 License : MIT
 Source  : https://github.com/hcoohb/hass-yeelightbt
 """
+from __future__ import annotations
 
 # Standard imports
 import asyncio
 import enum
-import struct
 import logging
+import struct
+from typing import Any, Callable, cast
 
 # 3rd party imports
-from bleak import BleakClient, BleakError
+from bleak import BleakClient, BleakError, BleakScanner
+from bleak.backends.client import BaseBleakClient
 from bleak.backends.device import BLEDevice
 
 NOTIFY_UUID = "8f65073d-9f57-4aaa-afea-397d19d5bbeb"
@@ -43,6 +46,7 @@ MODEL_BEDSIDE = "Bedside"
 MODEL_CANDELA = "Candela"
 MODEL_UNKNOWN = "Unknown"
 
+
 class Conn(enum.Enum):
     DISCONNECTED = 1
     UNPAIRED = 2
@@ -52,7 +56,8 @@ class Conn(enum.Enum):
 
 _LOGGER = logging.getLogger(__name__)
 
-def model_from_name(ble_name:str):
+
+def model_from_name(ble_name: str) -> str:
     model = MODEL_UNKNOWN
     if ble_name.startswith("XMCTD_"):
         model = MODEL_BEDSIDE
@@ -74,30 +79,37 @@ class Lamp:
         self._client: BleakClient | None = None
         self._ble_device = ble_device
         self._mac = self._ble_device.address
-        _LOGGER.debug(f"Initializing Yeelight Lamp {self._ble_device.name} ({self._mac})")
+        _LOGGER.debug(
+            f"Initializing Yeelight Lamp {self._ble_device.name} ({self._mac})"
+        )
         self._is_on = False
-        self._mode = None
-        self._rgb = None
-        self._brightness = None
-        self._temperature = None
-        self.versions = None
+        self._mode: int | None = None
+        self._rgb = (0, 0, 0)
+        self._brightness = 0
+        self._temperature = 0
+        self.versions: str | None = None
         self._model = model_from_name(self._ble_device.name)
-        self._state_callbacks = []  # store func to call on state received
+        # store func to call on state received:
+        self._state_callbacks: list[Callable[[], None]] = []
         self._conn = Conn.DISCONNECTED
         self._pair_resp_event = asyncio.Event()
         self._read_service = False
 
-    def __str__(self):
-        """ The string representation """
+    def __str__(self) -> str:
+        """The string representation"""
         mode_str = {
             self.MODE_COLOR: "Color",
             self.MODE_WHITE: "White",
             self.MODE_FLOW: "Flow",
         }
-        str_rgb = f"rgb_{self._rgb} " if self._rgb is not None else ""
-        str_temp = f"temp_{self._temperature}" if self._temperature is not None else ""
+        str_rgb = (
+            f"rgb_{self._rgb} "
+            if self._mode in [self.MODE_COLOR, self.MODE_FLOW]
+            else ""
+        )
+        str_temp = f"temp_{self._temperature}" if self._mode == self.MODE_WHITE else ""
         str_mode = mode_str[self._mode] if self._mode in mode_str else self._mode
-        str_bri = f"bri_{self._brightness} " if self._brightness is not None else ""
+        str_bri = f"bri_{self._brightness} " if self._mode else ""
         str_rep = (
             f"<Lamp {self._mac} "
             f"{'ON' if self._is_on else 'OFF'} "
@@ -107,19 +119,19 @@ class Lamp:
         )
         return str_rep
 
-    def add_callback_on_state_changed(self, func):
+    def add_callback_on_state_changed(self, func: Callable[[], None]) -> None:
         """
         Register callbacks to be called when lamp state is received or bt disconnected
         """
         self._state_callbacks.append(func)
 
-    def run_state_changed_cb(self):
+    def run_state_changed_cb(self) -> None:
         """Execute all registered callbacks for a state change"""
         for func in self._state_callbacks:
             func()
 
-    def diconnected_cb(self, client):
-        #ensure we are responding to the newest client:
+    def diconnected_cb(self, client: BaseBleakClient) -> None:
+        # ensure we are responding to the newest client:
         if client != self._client:
             return
         _LOGGER.debug(f"Client with address {client.address} got disconnected!")
@@ -127,19 +139,19 @@ class Lamp:
         self._conn = Conn.DISCONNECTED
         self.run_state_changed_cb()
 
-    async def connect(self, num_tries=3):
+    async def connect(self, num_tries: int = 3) -> None:
         if self._conn == Conn.PAIRING or self._conn == Conn.PAIRED:
-            # We do not try to reconnect if we are disonnected or unpaired
+            # We do not try to reconnect if we are disconnected or unpaired
             return
         _LOGGER.debug("Initiating new connection")
         for i in range(num_tries):
             try:
-                if i>0:
+                if i > 0:
                     _LOGGER.debug(f"Connect retry {i}")
                 if self._client:
                     await self.disconnect()
-                self._client =  BleakClient(self._ble_device)
-                _LOGGER.debug(f"Connecting now:...")
+                self._client = BleakClient(self._ble_device)
+                _LOGGER.debug("Connecting now:...")
                 await self._client.connect(timeout=10)
                 self._conn = Conn.UNPAIRED
                 _LOGGER.debug(f"Connected: {self._client.is_connected}")
@@ -156,16 +168,20 @@ class Lamp:
                 if self._model == MODEL_CANDELA or self._model == MODEL_BEDSIDE:
                     # try to read state before pairing
                     _LOGGER.debug("Request State")
-                    bits = struct.pack("BBB15x", COMMAND_STX, CMD_GETSTATE, CMD_GETSTATE_SEC)
+                    bits = bytearray(
+                        struct.pack(
+                            "BBB15x", COMMAND_STX, CMD_GETSTATE, CMD_GETSTATE_SEC
+                        )
+                    )
                     await self._client.write_gatt_char(CONTROL_UUID, bits)
                     await asyncio.sleep(0.3)
                 _LOGGER.debug("Request Pairing")
                 await self.pair()
                 await asyncio.sleep(0.3)
                 _LOGGER.debug(f"Connection status: {self._conn}")
-                
+
                 if self._model == MODEL_CANDELA or self._model == MODEL_BEDSIDE:
-                    # Can the candela be controled without pairing?
+                    # Can the candela be controlled without pairing?
                     # turn on and off:
                     conn = self._conn
                     self._conn == Conn.PAIRED
@@ -175,7 +191,7 @@ class Lamp:
                     self._conn == conn
 
                 if self._conn == Conn.PAIRED:
-                    #ensure we get state straight away after connection
+                    # ensure we get state straight away after connection
                     await self.get_state()
                     if not self.versions:
                         await self.get_version()
@@ -186,10 +202,10 @@ class Lamp:
             except BleakError as err:
                 _LOGGER.error(f"Connection: BleakError: {err}")
 
-    async def pair(self):
+    async def pair(self) -> None:
         """Send pairing command directly"""
-        bits = struct.pack("BBB15x", COMMAND_STX, CMD_PAIR, CMD_PAIR_ON)
-        if self._conn != Conn.UNPAIRED:
+        bits = bytearray(struct.pack("BBB15x", COMMAND_STX, CMD_PAIR, CMD_PAIR_ON))
+        if self._conn != Conn.UNPAIRED or self._client is None:
             _LOGGER.error("Pairing: Cannot request pair as not connected")
             return
         try:
@@ -202,7 +218,9 @@ class Lamp:
         except BleakError as err:
             _LOGGER.error(f"Pairing: BleakError: {err}")
 
-    async def disconnect(self):
+    async def disconnect(self) -> None:
+        if self._client is None:
+            return
         try:
             await self._client.disconnect()
         except asyncio.TimeoutError:
@@ -211,52 +229,50 @@ class Lamp:
             _LOGGER.error(f"Disconnection: BleakError: {err}")
         self._conn = Conn.DISCONNECTED
 
-
     @property
-    def mac(self):
+    def mac(self) -> str:
         return self._mac
 
     @property
-    def available(self):
+    def available(self) -> bool:
         return self._mode is not None
 
     @property
-    def model(self):
+    def model(self) -> str:
         return self._model
 
     @property
-    def mode(self):
+    def mode(self) -> int | None:
         return self._mode
 
     @property
-    def is_on(self):
+    def is_on(self) -> bool:
         return self._is_on
 
     @property
-    def temperature(self):
+    def temperature(self) -> int:
         return self._temperature
 
     @property
-    def brightness(self):
+    def brightness(self) -> int:
         return self._brightness
 
     @property
-    def color(self):
+    def color(self) -> tuple[int, int, int]:
         return self._rgb
 
-    def get_prop_min_max(self):
+    def get_prop_min_max(self) -> dict[str, Any]:
         return {
             "brightness": {"min": 0, "max": 100},
             "temperature": {"min": 1700, "max": 6500},
             "color": {"min": 0, "max": 255},
         }
 
-
-    async def send_cmd(self, bits, wait_notif: float = 0.5):
+    async def send_cmd(self, bits: bytes, wait_notif: float = 0.5) -> bool:
         await self.connect()
-        if self._conn == Conn.PAIRED:
+        if self._conn == Conn.PAIRED and self._client is not None:
             try:
-                await self._client.write_gatt_char(CONTROL_UUID, bits)
+                await self._client.write_gatt_char(CONTROL_UUID, bytearray(bits))
                 await asyncio.sleep(wait_notif)
                 return True
             except asyncio.TimeoutError:
@@ -265,20 +281,20 @@ class Lamp:
                 _LOGGER.error(f"Send Cmd: BleakError: {err}")
         return False
 
-    async def get_state(self):
+    async def get_state(self) -> None:
         """Request the state of the lamp (send back state through notif)"""
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_GETSTATE, CMD_GETSTATE_SEC)
         _LOGGER.debug("Send Cmd: Get_state")
         await self.send_cmd(bits)
 
-    async def turn_on(self):
-        """Turn the lamp on. (send back state through notif) """
+    async def turn_on(self) -> None:
+        """Turn the lamp on. (send back state through notif)"""
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_POWER, CMD_POWER_ON)
         _LOGGER.debug("Send Cmd: Turn On")
         await self.send_cmd(bits)
 
-    async def turn_off(self):
-        """Turn the lamp off. (send back state through notif) """
+    async def turn_off(self) -> None:
+        """Turn the lamp off. (send back state through notif)"""
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_POWER, CMD_POWER_OFF)
         _LOGGER.debug("Send Cmd: Turn Off")
         await self.send_cmd(bits)
@@ -287,8 +303,8 @@ class Lamp:
     # However, the lamp takes time to transition to new state
     # and if another command (including get_state) is sent during that time,
     # it stops the transition where it is...
-    async def set_brightness(self, brightness: int):
-        """ Set the brightness [1-100] (no notif)"""
+    async def set_brightness(self, brightness: int) -> None:
+        """Set the brightness [1-100] (no notif)"""
         brightness = min(100, max(0, int(brightness)))
         _LOGGER.debug(f"Set_brightness {brightness}")
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_BRIGHTNESS, brightness)
@@ -296,8 +312,8 @@ class Lamp:
         if await self.send_cmd(bits, wait_notif=0):
             self._brightness = brightness
 
-    async def set_temperature(self, kelvin: int, brightness: int = None):
-        """ Set the temperature (White mode) [1700 - 6500 K] (no notif)"""
+    async def set_temperature(self, kelvin: int, brightness: int | None = None) -> None:
+        """Set the temperature (White mode) [1700 - 6500 K] (no notif)"""
         if brightness is None:
             brightness = self._brightness
         kelvin = min(6500, max(1700, int(kelvin)))
@@ -309,8 +325,10 @@ class Lamp:
             self._brightness = brightness
             self._mode = self.MODE_WHITE
 
-    async def set_color(self, red: int, green: int, blue: int, brightness: int = None):
-        """ Set the color of the lamp [0-255] (no notif)"""
+    async def set_color(
+        self, red: int, green: int, blue: int, brightness: int | None = None
+    ) -> None:
+        """Set the color of the lamp [0-255] (no notif)"""
         if brightness is None:
             brightness = self._brightness
         _LOGGER.debug(f"Set_color {(red, green, blue)}, {brightness}")
@@ -323,32 +341,32 @@ class Lamp:
             self._brightness = brightness
             self._mode = self.MODE_COLOR
 
-    async def get_name(self):
-        """ Get the name from the lamp (through notif)"""
+    async def get_name(self) -> None:
+        """Get the name from the lamp (through notif)"""
         bits = struct.pack("BB16x", COMMAND_STX, CMD_GETNAME)
         _LOGGER.debug("Send Cmd: Get_Name")
         await self.send_cmd(bits)
 
-    async def get_version(self):
-        """ Get the versions from the lamp (through notif) """
+    async def get_version(self) -> None:
+        """Get the versions from the lamp (through notif)"""
         bits = struct.pack("BB16x", COMMAND_STX, CMD_GETVER)
         _LOGGER.debug("Send Cmd: Get_Version")
         await self.send_cmd(bits)
 
-    async def get_serial(self):
-        """ Get the serial from the lamp (through notif) """
+    async def get_serial(self) -> None:
+        """Get the serial from the lamp (through notif)"""
         bits = struct.pack("BB16x", COMMAND_STX, CMD_GETSERIAL)
         _LOGGER.debug("Send Cmd: Get_Serial")
         await self.send_cmd(bits)
 
-    def notification_handler(self, cHandle, data):
+    def notification_handler(self, cHandle: int, data: bytearray) -> None:
         """Method called when a notification is sent from the lamp
         It is processed here rather than in the handleNotification() function,
         because the latter is not a method of the Lamp class, therefore it can't access
         the Lamp object's data
         :args: - data : the received data from the lamp in hex format
         """
-        _LOGGER.debug(f"Received 0x{data.hex()} fron handle={cHandle}")
+        _LOGGER.debug(f"Received 0x{data.hex()} from handle={cHandle}")
 
         res_type = struct.unpack("xB16x", data)[0]  # the type of response we got
         if res_type == RES_GETSTATE:  # state result
@@ -382,7 +400,9 @@ class Lamp:
                 self._conn = Conn.PAIRED
                 self._pair_resp_event.set()
             if pair_mode == 0x03:
-                _LOGGER.error("Yeelight is not paired! The next connection will attempt a new pairing request.")
+                _LOGGER.error(
+                    "Yeelight is not paired! The next connection will attempt a new pairing request."
+                )
                 self._mode = None  # unavailable in HA
                 self._conn = Conn.UNPAIRED
                 self._pair_resp_event.set()
@@ -398,15 +418,15 @@ class Lamp:
                 self._pair_resp_event.set()
 
         if res_type == RES_GETVER:
-            self.versions = struct.unpack("xxBHHHH6x", data)
+            self.versions = cast(str, struct.unpack("xxBHHHH6x", data))
             _LOGGER.info(f"Lamp {self._mac} exposes versions:{self.versions}")
 
         if res_type == RES_GETSERIAL:
             self.serial = struct.unpack("xxB15x", data)[0]
             _LOGGER.info(f"Lamp {self._mac} exposes serial:{self.serial}")
 
-    async def read_services(self):
-        if self._conn != Conn.UNPAIRED:
+    async def read_services(self) -> None:
+        if self._conn != Conn.UNPAIRED or self._client is None:
             return
         for service in self._client.services:
             _LOGGER.info(f"[Service] {service}")
@@ -415,7 +435,7 @@ class Lamp:
                     try:
                         value = bytes(await self._client.read_gatt_char(char.uuid))
                         _LOGGER.info(
-                            f"__[Characteristic] {char} ({','.join(char.properties)}), Value: {value}"
+                            f"__[Characteristic] {char} ({','.join(char.properties)}), Value: {str(value)}"
                         )
                     except Exception as e:
                         _LOGGER.error(
@@ -433,33 +453,37 @@ class Lamp:
                         value = bytes(
                             await self._client.read_gatt_descriptor(descriptor.handle)
                         )
-                        _LOGGER.info(f"____[Descriptor] {descriptor}) | Value: {value}")
+                        _LOGGER.info(
+                            f"____[Descriptor] {descriptor}) | Value: {str(value)}"
+                        )
                     except Exception as e:
                         _LOGGER.error(f"____[Descriptor] {descriptor}) | Value: {e}")
 
 
+async def find_device_by_address(
+    address: str, timeout: float = 20.0
+) -> BLEDevice | None:
+    from bleak import BleakScanner
 
-async def find_device_by_address(address: str, timeout:float=20.0):
-        from bleak import BleakScanner
-        return await BleakScanner.find_device_by_address(address.upper(), timeout=timeout)
+    return await BleakScanner.find_device_by_address(address.upper(), timeout=timeout)
 
 
-async def discover_yeelight_lamps(scanner = None):
+async def discover_yeelight_lamps(
+    scanner: type[BleakScanner] | None = None,
+) -> list[dict[str, Any]]:
     """Scanning feature
     Scan the BLE neighborhood for an Yeelight lamp
     This method requires the script to be launched as root
     Returns the list of nearby lamps
     """
     lamp_list = []
-    if scanner is None:
-        from bleak import BleakScanner
-        scanner = BleakScanner
+    scanner = scanner if scanner is not None else BleakScanner
 
     devices = await scanner.discover()
     for d in devices:
         model = model_from_name(d.name)
         if model != MODEL_UNKNOWN:
-            lamp_list.append({"ble_device":d, "model": model})
+            lamp_list.append({"ble_device": d, "model": model})
             _LOGGER.info(f"found {model} with mac: {d.address}, details:{d.details}")
     return lamp_list
 
@@ -487,20 +511,16 @@ if __name__ == "__main__":
     # # now try to connect to the lamp
     # if not lamp_list:
     #     exit
-    
-    async def test_light():
 
+    async def test_light() -> None:
 
-
-        from bleak import BleakScanner
         device = await find_device_by_address("F8:24:41:E6:3E:39")
-        print("DEVICE:")
-        print(device)
-        print("DEVICE END")
+        if device is None:
+            print("No device found")
+            return
         lamp_list = [{"ble_device": device, "model": MODEL_BEDSIDE}]
 
-
-        yee = Lamp(lamp_list[0]["ble_device"])
+        yee = Lamp(cast(BLEDevice, lamp_list[0]["ble_device"]))
         await yee.connect()
         await asyncio.sleep(2.0)
         await yee.turn_on()
@@ -529,7 +549,6 @@ if __name__ == "__main__":
         await asyncio.sleep(2.0)
         await yee.disconnect()
         await asyncio.sleep(2.0)
-        
-    
+
     asyncio.run(test_light())
     print("The end")

@@ -28,7 +28,7 @@
     },
     "abort": {
       "already_configured": "This mac address is already registered.",
-      "no_devices_found": "No devices found during this scan. Enusre the lamp is not connected to another app. Reseting the lamp may help"
+      "no_devices_found": "No devices found during this scan. Ensure the lamp is not connected to another app. Resetting the lamp may help."
     }
   }
 }
