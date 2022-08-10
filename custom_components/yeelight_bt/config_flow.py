@@ -73,7 +73,7 @@ class Yeelight_btConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: 
         _LOGGER.debug("Preparing for a scan")
         # first we check if scanner from HA bluetooth is enabled
         try:
-            if scanner.discovered_devices >= 1:
+            if len(scanner.discovered_devices) >= 1:
                 # raises Attribute errors if bluetooth not configured
                 _LOGGER.debug(f"Using HA scanner {scanner}")
         except AttributeError:
