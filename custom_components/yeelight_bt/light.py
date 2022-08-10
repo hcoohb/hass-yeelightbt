@@ -268,13 +268,12 @@ class YeelightBT(LightEntity):
         # ATTR cannot be set while light is off, so turn it on first
         if not self._is_on:
             await self._dev.turn_on()
+            if any(
+                keyword in kwargs
+                for keyword in (ATTR_HS_COLOR, ATTR_COLOR_TEMP, ATTR_BRIGHTNESS)
+            ):
+                await asyncio.sleep(0.5)  # wait for the lamp to turn on
         self._is_on = True
-
-        if any(
-            keyword in kwargs
-            for keyword in (ATTR_HS_COLOR, ATTR_COLOR_TEMP, ATTR_BRIGHTNESS)
-        ):
-            await asyncio.sleep(0.5)  # wait for the lamp to turn on
 
         if ATTR_HS_COLOR in kwargs:
             rgb: tuple[int, int, int] = color_hs_to_RGB(*kwargs.get(ATTR_HS_COLOR))
