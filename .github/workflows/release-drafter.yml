@@ -7,7 +7,7 @@ on:
       - master
   # pull_request event is required only for autolabeler
   #pull_request:
-    # Only following types are handled by the action, but one can default to all as well
+  # Only following types are handled by the action, but one can default to all as well
   #  types: [opened, reopened, synchronize, labeled, unlabeled]
   # pull_request_target event is required for autolabeler to support PRs from forks
   # pull_request_target:
@@ -20,11 +20,10 @@ permissions:
 jobs:
   Create_PR_for_next_version_and_update_release_draft:
     permissions:
-      contents: write  # for release-drafter/release-drafter to create a github release
-      pull-requests: write  # for release-drafter/release-drafter to add label to PR
+      contents: write # for release-drafter/release-drafter to create a github release
+      pull-requests: write # for release-drafter/release-drafter to add label to PR
     runs-on: ubuntu-latest
     steps:
-
       # First we use release-drafter for calc the next version based on PR labels
       # Drafts your next Release notes as Pull Requests are merged into "master"
       - uses: release-drafter/release-drafter@v5
@@ -62,7 +61,7 @@ jobs:
             Automatically updating the next release version based on release-drafter output
           labels: |
             skip-changelog
-          
+
       # Now create the proper release-draft based on version in the code
       - uses: actions/checkout@v3
       - name: Get version from file
@@ -79,9 +78,9 @@ jobs:
         id: release_drafter_real
         with:
           tag: "v${{ steps.get_version.outputs.version }}"
-#           version: ${{ steps.get_version.outputs.version }}
-#           tag: "v2.0.1-beta"
-#           version: "2.0.1-beta"
+          #           version: ${{ steps.get_version.outputs.version }}
+          #           tag: "v2.0.1-beta"
+          #           version: "2.0.1-beta"
           config-name: release-drafter.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

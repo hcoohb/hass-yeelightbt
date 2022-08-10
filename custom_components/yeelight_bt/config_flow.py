@@ -1,22 +1,19 @@
 """Config flow for yeelight_bt"""
+from __future__ import annotations
+
 import logging
-from homeassistant import config_entries
-from homeassistant.const import CONF_NAME, CONF_MAC
+from typing import Any
+
 import voluptuous as vol
-from homeassistant.helpers import device_registry as dr
+from homeassistant import config_entries
 from homeassistant.components import bluetooth
-
-from .const import DOMAIN, CONF_ENTRY_METHOD, CONF_ENTRY_SCAN, CONF_ENTRY_MANUAL
-
-
-from homeassistant.data_entry_flow import FlowResult
 from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
+from homeassistant.const import CONF_MAC, CONF_NAME
+from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers import device_registry as dr
 
-from .yeelightbt import (
-    discover_yeelight_lamps,
-    BleakError,
-    model_from_name
-)
+from .const import CONF_ENTRY_MANUAL, CONF_ENTRY_METHOD, CONF_ENTRY_SCAN, DOMAIN
+from .yeelightbt import BleakError, discover_yeelight_lamps, model_from_name
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,7 +25,7 @@ class Yeelight_btConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: 
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
     @property
-    def data_schema(self):
+    def data_schema(self) -> vol.Schema:
         """Return the data schema for integration."""
         return vol.Schema({vol.Required(CONF_NAME): str, vol.Required(CONF_MAC): str})
 
@@ -39,11 +36,15 @@ class Yeelight_btConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: 
         _LOGGER.debug("Discovered bluetooth device: %s", discovery_info)
         await self.async_set_unique_id(dr.format_mac(discovery_info.address))
         self._abort_if_unique_id_configured()
-        
-        self.devices = [f"{discovery_info.address} ({model_from_name(discovery_info.name)})"]
+
+        self.devices = [
+            f"{discovery_info.address} ({model_from_name(discovery_info.name)})"
+        ]
         return await self.async_step_device()
 
-    async def async_step_user(self, user_input=None):
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
         """Handle a flow initialized by the user."""
 
         if user_input is None:
@@ -61,7 +62,9 @@ class Yeelight_btConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: 
             self.devices = []
             return await self.async_step_device()
 
-    async def async_step_scan(self, user_input=None):
+    async def async_step_scan(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
         """Handle the discovery by scanning."""
         errors = {}
         if user_input is None:
@@ -70,11 +73,12 @@ class Yeelight_btConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: 
         _LOGGER.debug("Preparing for a scan")
         # first we check if scanner from HA bluetooth is enabled
         try:
-            devs=scanner.discovered_devices # raises Attribute errors if bluetooth not configured
-            _LOGGER.debug(f"Using HA scanner {scanner}")
+            if scanner.discovered_devices >= 1:
+                # raises Attribute errors if bluetooth not configured
+                _LOGGER.debug(f"Using HA scanner {scanner}")
         except AttributeError:
             scanner = None
-            _LOGGER.debug(f"Using bleak scanner directly")
+            _LOGGER.debug("Using bleak scanner directly")
         try:
             _LOGGER.debug("Starting a scan for Yeelight Bt devices")
             ble_devices = await discover_yeelight_lamps(scanner)
@@ -85,12 +89,16 @@ class Yeelight_btConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: 
 
         if not ble_devices:
             return self.async_abort(reason="no_devices_found")
-        self.devices = [f"{dev['ble_device'].address} ({dev['model']})" for dev in ble_devices]
+        self.devices = [
+            f"{dev['ble_device'].address} ({dev['model']})" for dev in ble_devices
+        ]
         # TODO: filter existing devices ?
 
         return await self.async_step_device()
 
-    async def async_step_device(self, user_input=None):
+    async def async_step_device(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
         """Handle setting up a device."""
         # _LOGGER.debug(f"User_input: {user_input}")
         if not user_input:
@@ -111,6 +119,6 @@ class Yeelight_btConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: 
 
         return self.async_create_entry(title=user_input[CONF_NAME], data=user_input)
 
-    async def async_step_import(self, import_info):
+    async def async_step_import(self, import_info: dict[str, Any]) -> FlowResult:
         """Handle import from config file."""
         return await self.async_step_device(import_info)
