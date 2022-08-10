@@ -118,7 +118,3 @@ class Yeelight_btConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: 
         self._abort_if_unique_id_configured()
 
         return self.async_create_entry(title=user_input[CONF_NAME], data=user_input)
-
-    async def async_step_import(self, import_info: dict[str, Any]) -> FlowResult:
-        """Handle import from config file."""
-        return await self.async_step_device(import_info)

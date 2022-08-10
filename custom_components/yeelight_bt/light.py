@@ -23,7 +23,6 @@ from homeassistant.const import CONF_MAC, CONF_NAME, EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util.color import color_hs_to_RGB, color_RGB_to_hs
 from homeassistant.util.color import (
     color_temperature_kelvin_to_mired as kelvin_to_mired,
@@ -51,23 +50,6 @@ SUPPORT_YEELIGHT_BT = SUPPORT_BRIGHTNESS  # | SUPPORT_EFFECT
 SUPPORT_YEELIGHT_BEDSIDE = SUPPORT_YEELIGHT_BT | SUPPORT_COLOR_TEMP | SUPPORT_COLOR
 
 _LOGGER = logging.getLogger(__name__)
-
-
-async def async_setup_platform(
-    hass: HomeAssistant,
-    config: ConfigType,
-    async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
-) -> None:
-    """Setup the yeelightbt light platform."""
-    mac = config[CONF_MAC]
-    name = config[CONF_NAME]
-    _LOGGER.debug(f"Setting up light platform for device {mac}")
-    if discovery_info is not None:
-        _LOGGER.debug("Adding autodetected %s", discovery_info["hostname"])
-        name = DOMAIN
-    _LOGGER.debug(f"Adding light {name} with mac:{mac}")
-    async_add_entities([YeelightBT(name, mac)])
 
 
 async def async_setup_entry(
