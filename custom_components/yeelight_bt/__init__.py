@@ -2,33 +2,15 @@
 import logging
 
 from homeassistant.components import bluetooth
-from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_MAC
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers.typing import ConfigType
 
 from .const import DOMAIN
 from .yeelightbt import find_device_by_address
 
 _LOGGER = logging.getLogger(__name__)
-
-
-async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up yeelight bt from configuration.yaml."""
-    _LOGGER.debug("async setup.")
-    # _LOGGER.debug(f"YAML config:{config}")
-    _LOGGER.debug(" List entries for domain:")
-    _LOGGER.debug(hass.config_entries.async_entries(DOMAIN))
-
-    conf = config.get(DOMAIN)
-    if conf:
-        hass.async_create_task(
-            hass.config_entries.flow.async_init(
-                DOMAIN, data=conf, context={"source": SOURCE_IMPORT}
-            )
-        )
-    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -53,19 +35,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.async_create_task(
         hass.config_entries.async_forward_entry_setup(entry, "light")
     )
-    return True
-
-
-async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
-    """Migrate old entry."""
-    data = config_entry.data
-    version = config_entry.version
-
-    _LOGGER.debug(f"Migrating Yeelight_bt from Version {version}. it has data: {data}")
-    # Migrate Version 1 -> Version 2: Stuff up... nothing changed.
-    if version == 1:
-        version = config_entry.version = 2
-        hass.config_entries.async_update_entry(config_entry, data=data)
     return True
 
 
