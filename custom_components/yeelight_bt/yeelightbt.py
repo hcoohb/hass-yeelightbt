@@ -16,6 +16,7 @@ from typing import Any, Callable, cast
 from bleak import BleakClient, BleakError, BleakScanner
 from bleak.backends.client import BaseBleakClient
 from bleak.backends.device import BLEDevice
+from bleak_retry_connector import establish_connection
 
 NOTIFY_UUID = "8f65073d-9f57-4aaa-afea-397d19d5bbeb"
 CONTROL_UUID = "aa7d3f34-2d4f-41e0-807f-52fbf8cf7443"
@@ -83,12 +84,14 @@ class Lamp:
             f"Initializing Yeelight Lamp {self._ble_device.name} ({self._mac})"
         )
         self._is_on = False
-        self._mode: int | None = None
         self._rgb = (0, 0, 0)
         self._brightness = 0
         self._temperature = 0
         self.versions: str | None = None
         self._model = model_from_name(self._ble_device.name)
+        self._mode: int | None = (
+            self.MODE_WHITE if self._model == MODEL_CANDELA else None
+        )
         # store func to call on state received:
         self._state_callbacks: list[Callable[[], None]] = []
         self._conn = Conn.DISCONNECTED
@@ -144,56 +147,52 @@ class Lamp:
             # We do not try to reconnect if we are disconnected or unpaired
             return
         _LOGGER.debug("Initiating new connection")
-        for i in range(num_tries):
-            try:
-                if i > 0:
-                    _LOGGER.debug(f"Connect retry {i}")
-                if self._client:
-                    await self.disconnect()
-                self._client = BleakClient(self._ble_device)
-                _LOGGER.debug("Connecting now:...")
-                await self._client.connect(timeout=10)
-                self._conn = Conn.UNPAIRED
-                _LOGGER.debug(f"Connected: {self._client.is_connected}")
-                self._client.set_disconnected_callback(self.diconnected_cb)
+        try:
+            if self._client:
+                await self.disconnect()
 
-                # bits = struct.pack("BBB15x", COMMAND_STX, CMD_GETSTATE, CMD_GETSTATE_SEC)
-                # await self._client.write_gatt_char(CONTROL_UUID, bytearray(bits))
+            _LOGGER.debug("Connecting now:...")
+            self._client = await establish_connection(
+                BleakClient,
+                device=self._ble_device,
+                name=self._mac,
+                disconnected_callback=self.diconnected_cb,
+                max_attempts=3,
+            )
+            self._conn = Conn.UNPAIRED
+            _LOGGER.debug(f"Connected: {self._client.is_connected}")
 
-                # read services if in debug mode:
-                if not self._read_service and _LOGGER.isEnabledFor(logging.DEBUG):
-                    await self.read_services()
-                    self._read_service = True
-                    await asyncio.sleep(0.2)
+            # read services if in debug mode:
+            if not self._read_service and _LOGGER.isEnabledFor(logging.DEBUG):
+                await self.read_services()
+                self._read_service = True
+                await asyncio.sleep(0.2)
 
-                _LOGGER.debug("Request Notify")
-                if self._model == MODEL_BEDSIDE:
-                    await self._client.start_notify(
-                        NOTIFY_UUID, self.notification_handler
-                    )
-                    await asyncio.sleep(0.3)
-                    _LOGGER.debug("Request Pairing")
-                    await self.pair()
-                    await asyncio.sleep(0.3)
-                    if self._conn == Conn.PAIRED:
-                        # ensure we get state straight away after connection
-                        await self.get_state()
-                        if not self.versions:
-                            await self.get_version()
-                            await self.get_serial()
-                        break
+            _LOGGER.debug("Request Notify")
+            if self._model == MODEL_BEDSIDE:
+                await self._client.start_notify(NOTIFY_UUID, self.notification_handler)
+                await asyncio.sleep(0.3)
+                _LOGGER.debug("Request Pairing")
+                await self.pair()
+                await asyncio.sleep(0.3)
+                if self._conn == Conn.PAIRED:
+                    # ensure we get state straight away after connection
+                    await self.get_state()
+                    if not self.versions:
+                        await self.get_version()
+                        await self.get_serial()
 
-                if self._model == MODEL_CANDELA:
-                    # let's assume we are connected without actual pairing:
-                    # maybe we can still control on the candela?
-                    self._conn == Conn.PAIRED
+            if self._model == MODEL_CANDELA:
+                # let's assume we are connected without actual pairing:
+                # maybe we can still control on the candela?
+                self._conn == Conn.PAIRED
 
-                _LOGGER.debug(f"Connection status: {self._conn}")
+            _LOGGER.debug(f"Connection status: {self._conn}")
 
-            except asyncio.TimeoutError:
-                _LOGGER.error("Connection Timeout error")
-            except BleakError as err:
-                _LOGGER.error(f"Connection: BleakError: {err}")
+        except asyncio.TimeoutError:
+            _LOGGER.error("Connection Timeout error")
+        except BleakError as err:
+            _LOGGER.error(f"Connection: BleakError: {err}")
 
     async def pair(self) -> None:
         """Send pairing command directly"""
