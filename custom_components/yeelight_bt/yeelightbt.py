@@ -156,47 +156,40 @@ class Lamp:
                 self._conn = Conn.UNPAIRED
                 _LOGGER.debug(f"Connected: {self._client.is_connected}")
                 self._client.set_disconnected_callback(self.diconnected_cb)
-                # read services:
-                if not self._read_service:
+
+                # bits = struct.pack("BBB15x", COMMAND_STX, CMD_GETSTATE, CMD_GETSTATE_SEC)
+                # await self._client.write_gatt_char(CONTROL_UUID, bytearray(bits))
+
+                # read services if in debug mode:
+                if not self._read_service and _LOGGER.isEnabledFor(logging.DEBUG):
                     await self.read_services()
                     self._read_service = True
                     await asyncio.sleep(0.2)
 
                 _LOGGER.debug("Request Notify")
-                await self._client.start_notify(NOTIFY_UUID, self.notification_handler)
-                await asyncio.sleep(0.3)
-                if self._model == MODEL_CANDELA or self._model == MODEL_BEDSIDE:
-                    # try to read state before pairing
-                    _LOGGER.debug("Request State")
-                    bits = bytearray(
-                        struct.pack(
-                            "BBB15x", COMMAND_STX, CMD_GETSTATE, CMD_GETSTATE_SEC
-                        )
+                if self._model == MODEL_BEDSIDE:
+                    await self._client.start_notify(
+                        NOTIFY_UUID, self.notification_handler
                     )
-                    await self._client.write_gatt_char(CONTROL_UUID, bits)
                     await asyncio.sleep(0.3)
-                _LOGGER.debug("Request Pairing")
-                await self.pair()
-                await asyncio.sleep(0.3)
+                    _LOGGER.debug("Request Pairing")
+                    await self.pair()
+                    await asyncio.sleep(0.3)
+                    if self._conn == Conn.PAIRED:
+                        # ensure we get state straight away after connection
+                        await self.get_state()
+                        if not self.versions:
+                            await self.get_version()
+                            await self.get_serial()
+                        break
+
+                if self._model == MODEL_CANDELA:
+                    # let's assume we are connected without actual pairing:
+                    # maybe we can still control on the candela?
+                    self._conn == Conn.PAIRED
+
                 _LOGGER.debug(f"Connection status: {self._conn}")
 
-                if self._model == MODEL_CANDELA or self._model == MODEL_BEDSIDE:
-                    # Can the candela be controlled without pairing?
-                    # turn on and off:
-                    conn = self._conn
-                    self._conn == Conn.PAIRED
-                    await self.turn_on()
-                    await asyncio.sleep(2)
-                    await self.turn_off()
-                    self._conn == conn
-
-                if self._conn == Conn.PAIRED:
-                    # ensure we get state straight away after connection
-                    await self.get_state()
-                    if not self.versions:
-                        await self.get_version()
-                        await self.get_serial()
-                    break
             except asyncio.TimeoutError:
                 _LOGGER.error("Connection Timeout error")
             except BleakError as err:
@@ -426,7 +419,7 @@ class Lamp:
             _LOGGER.info(f"Lamp {self._mac} exposes serial:{self.serial}")
 
     async def read_services(self) -> None:
-        if self._conn != Conn.UNPAIRED or self._client is None:
+        if self._client is None:
             return
         for service in self._client.services:
             _LOGGER.info(f"[Service] {service}")
