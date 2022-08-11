@@ -168,8 +168,8 @@ class Lamp:
                 self._read_service = True
                 await asyncio.sleep(0.2)
 
-            _LOGGER.debug("Request Notify")
             if self._model == MODEL_BEDSIDE:
+                _LOGGER.debug("Request Notify")
                 await self._client.start_notify(NOTIFY_UUID, self.notification_handler)
                 await asyncio.sleep(0.3)
                 _LOGGER.debug("Request Pairing")
@@ -185,7 +185,7 @@ class Lamp:
             if self._model == MODEL_CANDELA:
                 # let's assume we are connected without actual pairing:
                 # maybe we can still control on the candela?
-                self._conn == Conn.PAIRED
+                self._conn = Conn.PAIRED
 
             _LOGGER.debug(f"Connection status: {self._conn}")
 
@@ -265,7 +265,8 @@ class Lamp:
         if self._conn == Conn.PAIRED and self._client is not None:
             try:
                 await self._client.write_gatt_char(CONTROL_UUID, bytearray(bits))
-                await asyncio.sleep(wait_notif)
+                if self._model != MODEL_CANDELA:
+                    await asyncio.sleep(wait_notif)
                 return True
             except asyncio.TimeoutError:
                 _LOGGER.error("Send Cmd: Timeout error")
@@ -275,6 +276,8 @@ class Lamp:
 
     async def get_state(self) -> None:
         """Request the state of the lamp (send back state through notif)"""
+        if self._model == MODEL_CANDELA:
+            return
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_GETSTATE, CMD_GETSTATE_SEC)
         _LOGGER.debug("Send Cmd: Get_state")
         await self.send_cmd(bits)
