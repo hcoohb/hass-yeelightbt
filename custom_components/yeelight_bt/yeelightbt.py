@@ -134,15 +134,19 @@ class Lamp:
             func()
 
     def diconnected_cb(self, client: BaseBleakClient) -> None:
+        _LOGGER.debug(f"Disconnected CB from client {client}")
         # ensure we are responding to the newest client:
-        if client != self._client:
-            return
-        _LOGGER.debug(f"Client with address {client.address} got disconnected!")
+        # if client != self._client:
+        #     return
         self._mode = None  # lamp not available
         self._conn = Conn.DISCONNECTED
         self.run_state_changed_cb()
 
     async def connect(self, num_tries: int = 3) -> None:
+        if (
+            self._client and not self._client.is_connected
+        ):  # check the connection has not dropped
+            await self.disconnect()
         if self._conn == Conn.PAIRING or self._conn == Conn.PAIRED:
             # We do not try to reconnect if we are disconnected or unpaired
             return
@@ -151,7 +155,7 @@ class Lamp:
             if self._client:
                 await self.disconnect()
 
-            _LOGGER.debug("Connecting now:...")
+            _LOGGER.debug(f"Connecting now to {self._ble_device}:...")
             self._client = await establish_connection(
                 BleakClient,
                 device=self._ble_device,
