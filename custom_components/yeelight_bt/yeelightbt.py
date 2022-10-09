@@ -98,6 +98,7 @@ class Lamp:
         self._conn = Conn.DISCONNECTED
         self._pair_resp_event = asyncio.Event()
         self._read_service = False
+        self._is_client_bluez = True
 
     def __str__(self) -> str:
         """The string representation"""
@@ -167,6 +168,10 @@ class Lamp:
             _LOGGER.debug(
                 f"Client used is: {self._client}. Backend is {self._client._backend}"
             )
+            self._is_client_bluez = (
+                str(type(self._client._backend))
+                == "<class 'bleak.backends.bluezdbus.client.BleakClientBlueZDBus'>"
+            )
             self._conn = Conn.UNPAIRED
             _LOGGER.debug(f"Connected: {self._client.is_connected}")
 
@@ -190,10 +195,23 @@ class Lamp:
                         await self.get_version()
                         await self.get_serial()
 
-            if self._model == MODEL_CANDELA:
-                # let's assume we are connected without actual pairing:
-                # maybe we can still control on the candela?
+            if self._model == MODEL_CANDELA and self._is_client_bluez:
+                # It may be that on bluez the notification request is not sent properly
+                # Not sure on esp... so only applyt to bluez
+                _LOGGER.debug("Request Pairing")
+                await self.pair()
+                # since we have no feedback
+                # we wait longer on first connection in case need to push button...
+                await asyncio.sleep(0.3 if self.versions else 10)
+                # now we are assuming that we paired successfully
                 self._conn = Conn.PAIRED
+                # ensure we get state straight away after connection
+                await self.get_state()
+                if not self.versions:
+                    await self.get_version()
+                    await self.get_serial()
+                # advertise to HA lamp is now available:
+                self.run_state_changed_cb()
 
             _LOGGER.debug(f"Connection status: {self._conn}")
 
@@ -209,6 +227,9 @@ class Lamp:
             _LOGGER.error("Pairing: Cannot request pair as not connected")
             return
         try:
+            if self._model == MODEL_CANDELA and self._is_client_bluez:
+                await self._client.write_gatt_char(CONTROL_UUID, bits)
+                return
             self._pair_resp_event.clear()
             await self._client.write_gatt_char(CONTROL_UUID, bits)
             # wait after pairing to receive notif of pair result:
@@ -235,7 +256,7 @@ class Lamp:
 
     @property
     def available(self) -> bool:
-        return self._mode is not None
+        return self._conn == Conn.PAIRED
 
     @property
     def model(self) -> str:
@@ -273,8 +294,7 @@ class Lamp:
         if self._conn == Conn.PAIRED and self._client is not None:
             try:
                 await self._client.write_gatt_char(CONTROL_UUID, bytearray(bits))
-                if self._model != MODEL_CANDELA:
-                    await asyncio.sleep(wait_notif)
+                await asyncio.sleep(wait_notif)
                 return True
             except asyncio.TimeoutError:
                 _LOGGER.error("Send Cmd: Timeout error")
@@ -284,8 +304,6 @@ class Lamp:
 
     async def get_state(self) -> None:
         """Request the state of the lamp (send back state through notif)"""
-        if self._model == MODEL_CANDELA:
-            return
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_GETSTATE, CMD_GETSTATE_SEC)
         _LOGGER.debug("Send Cmd: Get_state")
         await self.send_cmd(bits)
@@ -414,6 +432,7 @@ class Lamp:
                 self._conn = Conn.PAIRED
                 self._pair_resp_event.set()
             if pair_mode == 0x06 or pair_mode == 0x07:
+                # 0x07: Lamp disconnect imminent
                 _LOGGER.error(
                     "The pairing request returned unexpected results. Please reset the lamp (https://www.youtube.com/watch?v=PnjcOSgnbAM) and the pairing process will be attempted again on next connection."
                 )
