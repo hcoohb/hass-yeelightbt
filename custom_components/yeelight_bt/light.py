@@ -103,10 +103,8 @@ class YeelightBT(LightEntity):
                 EVENT_HOMEASSISTANT_STOP, self.async_will_remove_from_hass
             )
         )
-        _LOGGER.debug("YEELIGHT: before first connection ----")
-        # execute a first connection to get the device model
-        await self._dev.connect()
-        _LOGGER.debug("YEELIGHT: after first connection ----")
+        # schedule immediate refresh of lamp state:
+        self.async_schedule_update_ha_state(force_refresh=True)
 
     async def async_will_remove_from_hass(self) -> None:
         """Run when entity will be removed from hass."""
