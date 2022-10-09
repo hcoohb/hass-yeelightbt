@@ -285,7 +285,7 @@ class YeelightBT(LightEntity):
             _LOGGER.debug(f"Trying to set brightness: {brightness_dev}")
             await self._dev.set_brightness(brightness_dev)
             # assuming new state before lamp update comes through:
-            self._brightness = brightness_dev
+            self._brightness = int(round(float(brightness_dev) * 2.55))
             await asyncio.sleep(0.7)  # give time to transition before HA request update
             return
 

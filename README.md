@@ -6,7 +6,7 @@
 > - For HA 2022.7.0 => use release v1.0.1 (Candela does not seem to work)
 > - For HA 2022.8.0+ => v1.1.0+ is compatible with and without the bluetooth integration (Candela is still WIP)
 > - For HA 2022.9.0+ => v1.2.1+ is compatible with and without the bluetooth integration (Candela still not working)
-> - For HA 2022.10.0+ => v1.2.2+ is compatible with the bluetooth integration and with esp bluetooth proxy (Candela still not working)
+> - For HA 2022.10.0+ => v1.2.2+ is compatible with the bluetooth integration and with esp bluetooth proxy (Candela control may work?)
 
 # Home Assistant custom component for Yeelight Bedside lamp
 
