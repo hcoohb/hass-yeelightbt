@@ -83,6 +83,7 @@ class Lamp:
         _LOGGER.debug(
             f"Initializing Yeelight Lamp {self._ble_device.name} ({self._mac})"
         )
+        _LOGGER.debug(f"BLE_device details: {self._ble_device.details}")
         self._is_on = False
         self._rgb = (0, 0, 0)
         self._brightness = 0
@@ -161,7 +162,10 @@ class Lamp:
                 device=self._ble_device,
                 name=self._mac,
                 disconnected_callback=self.diconnected_cb,
-                max_attempts=3,
+                max_attempts=4,
+            )
+            _LOGGER.debug(
+                f"Client used is: {self._client}. Backend is {self._client._backend}"
             )
             self._conn = Conn.UNPAIRED
             _LOGGER.debug(f"Connected: {self._client.is_connected}")

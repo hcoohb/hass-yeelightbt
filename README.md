@@ -6,6 +6,7 @@
 > - For HA 2022.7.0 => use release v1.0.1 (Candela does not seem to work)
 > - For HA 2022.8.0+ => v1.1.0+ is compatible with and without the bluetooth integration (Candela is still WIP)
 > - For HA 2022.9.0+ => v1.2.1+ is compatible with and without the bluetooth integration (Candela still not working)
+> - For HA 2022.10.0+ => v1.2.2+ is compatible with the bluetooth integration and with esp bluetooth proxy (Candela still not working)
 
 # Home Assistant custom component for Yeelight Bedside lamp
 
@@ -61,7 +62,7 @@ Since version 1.0.0, this component uses the [`bleak`](https://github.com/hbldh/
 
 ## Adding the device to HA
 
-If you have the `bluetooth` integration enabled and configured (HA 2022.8+), the devices should be automatically discovered and you will receive a notification prompting you to add it.
+You must have the `bluetooth` integration enabled and configured (HA 2022.8+) or a connected ESPhome device running the bluetooth proxy (HA 2022.10+). The Lamps should be automatically discovered and you will receive a notification prompting you to add it.
 
 The devices can also be added through the `integration menu` UI:
 
@@ -102,7 +103,10 @@ Please ensure the following:
      default: warning
      logs:
        custom_components.yeelight_bt: debug
+       bleak_retry_connector: debug
        bleak: debug
+       # homeassistant.components.bluetooth: debug  # this can help if needed
+       # homeassistant.components.esphome.bluetooth: debug  # this can help if needed
    ```
 
    NOTE: this will generate A LOT of debugging messages in the logs, so it is not recommended to use for a long time
