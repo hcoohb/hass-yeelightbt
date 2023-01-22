@@ -20,7 +20,12 @@ This custom component can be installed in two different ways: `manually` or `usi
 
 ## 1. Installation using HACS (recommended)
 
-This repo is now in hacs, so just search for it, install and enjoy automatic updates.
+This repo is now in [HACS](https://hacs.xyz/).
+
+1. Install HACS follow the instructions [here](https://hacs.xyz/docs/setup/prerequisites)
+2. Search for `Yeelight bluetooth`
+3. Install and enjoy automatic updates
+
 
 ## 2. Manual Installation
 
