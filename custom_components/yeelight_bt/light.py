@@ -17,6 +17,8 @@ from homeassistant.components.light import (  # ATTR_EFFECT,; SUPPORT_EFFECT,
     SUPPORT_COLOR,
     SUPPORT_COLOR_TEMP,
     LightEntity,
+    LightEntityFeature,
+    ColorMode,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_MAC, CONF_NAME, EVENT_HOMEASSISTANT_STOP
@@ -106,7 +108,7 @@ class YeelightBT(LightEntity):
         # schedule immediate refresh of lamp state:
         self.async_schedule_update_ha_state(force_refresh=True)
 
-    async def async_will_remove_from_hass(self) -> None:
+    async def async_will_remove_from_hass(self, event) -> None:
         """Run when entity will be removed from hass."""
         _LOGGER.debug("Running async_will_remove_from_hass")
         try:
@@ -196,11 +198,23 @@ class YeelightBT(LightEntity):
         return self._is_on
 
     @property
-    def supported_features(self) -> int:
-        """Flag supported features."""
+    def supported_color_modes(self) -> set[str]:
+        """Return the supported color modes."""
         if self._dev.model == MODEL_CANDELA:
-            return SUPPORT_YEELIGHT_BT
-        return SUPPORT_YEELIGHT_BEDSIDE
+            return {ColorMode.BRIGHTNESS}
+        return {ColorMode.COLOR_TEMP, ColorMode.HS}
+    
+    @property
+    def supported_features(self) -> int:
+        """Return the supported features using LightEntityFeature."""
+        return LightEntityFeature.TRANSITION | LightEntityFeature.EFFECT
+        
+    @property
+    def color_mode(self) -> str:
+        """Return the current color mode of the light."""
+        if self._ct > 0:
+            return ColorMode.COLOR_TEMP
+        return ColorMode.HS        
 
     def _status_cb(self) -> None:
         _LOGGER.debug("Got state notification from the lamp")
@@ -291,6 +305,19 @@ class YeelightBT(LightEntity):
 
         # if ATTR_EFFECT in kwargs:
         #    self._effect = kwargs[ATTR_EFFECT]
+        
+        if ColorMode.HS in self.supported_color_modes and ATTR_HS_COLOR in kwargs:
+            rgb = color_hs_to_RGB(*kwargs[ATTR_HS_COLOR])
+            await self._dev.set_color(*rgb)
+    
+        if ColorMode.COLOR_TEMP in self.supported_color_modes and ATTR_COLOR_TEMP in kwargs:
+            mireds = kwargs[ATTR_COLOR_TEMP]
+            temp_in_k = int(mired_to_kelvin(mireds))
+            await self._dev.set_temperature(temp_in_k)
+    
+        if ATTR_BRIGHTNESS in kwargs:
+            brightness_dev = int(round(kwargs[ATTR_BRIGHTNESS] * 100 / 255))
+            await self._dev.set_brightness(brightness_dev)        
 
     async def async_turn_off(self, **kwargs: int) -> None:
         """Turn the light off."""

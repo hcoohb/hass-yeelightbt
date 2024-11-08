@@ -39,9 +39,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise ConfigEntryNotReady(f"Could not find Yeelight with address {address}")
 
     hass.data[DOMAIN][entry.entry_id] = ble_device
-    hass.async_create_task(
-        hass.config_entries.async_forward_entry_setup(entry, "light")
-    )
+    await hass.config_entries.async_forward_entry_setups(entry, ["light"])
     return True
 
 
