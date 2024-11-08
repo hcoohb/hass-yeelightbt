@@ -307,11 +307,7 @@ class YeelightBT(LightEntity):
         if ColorMode.COLOR_TEMP in self.supported_color_modes and ATTR_COLOR_TEMP in kwargs:
             mireds = kwargs[ATTR_COLOR_TEMP]
             temp_in_k = int(mired_to_kelvin(mireds))
-            await self._dev.set_temperature(temp_in_k)
-    
-        if ATTR_BRIGHTNESS in kwargs:
-            brightness_dev = int(round(kwargs[ATTR_BRIGHTNESS] * 100 / 255))
-            await self._dev.set_brightness(brightness_dev)        
+            await self._dev.set_temperature(temp_in_k)    
 
     async def async_turn_off(self, **kwargs: int) -> None:
         """Turn the light off."""
