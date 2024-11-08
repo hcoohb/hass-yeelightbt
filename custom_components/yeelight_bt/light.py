@@ -13,9 +13,6 @@ from homeassistant.components.light import (  # ATTR_EFFECT,; SUPPORT_EFFECT,
     ATTR_HS_COLOR,
     ENTITY_ID_FORMAT,
     PLATFORM_SCHEMA,
-    SUPPORT_BRIGHTNESS,
-    SUPPORT_COLOR,
-    SUPPORT_COLOR_TEMP,
     LightEntity,
     LightEntityFeature,
     ColorMode,
@@ -47,9 +44,6 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 )
 
 LIGHT_EFFECT_LIST = ["flow", "none"]
-
-SUPPORT_YEELIGHT_BT = SUPPORT_BRIGHTNESS  # | SUPPORT_EFFECT
-SUPPORT_YEELIGHT_BEDSIDE = SUPPORT_YEELIGHT_BT | SUPPORT_COLOR_TEMP | SUPPORT_COLOR
 
 _LOGGER = logging.getLogger(__name__)
 
