@@ -102,7 +102,7 @@ class YeelightBT(LightEntity):
         # schedule immediate refresh of lamp state:
         self.async_schedule_update_ha_state(force_refresh=True)
 
-    async def async_will_remove_from_hass(self, event) -> None:
+    async def async_will_remove_from_hass(self, event=None) -> None:
         """Run when entity will be removed from hass."""
         _LOGGER.debug("Running async_will_remove_from_hass")
         try:
@@ -263,7 +263,7 @@ class YeelightBT(LightEntity):
                 await asyncio.sleep(0.5)  # wait for the lamp to turn on
         self._is_on = True
 
-        if ATTR_HS_COLOR in kwargs:
+        if ATTR_HS_COLOR in kwargs and ColorMode.HS in self.supported_color_modes:
             rgb: tuple[int, int, int] = color_hs_to_RGB(*kwargs.get(ATTR_HS_COLOR))
             self._rgb = rgb
             _LOGGER.debug(
@@ -275,7 +275,7 @@ class YeelightBT(LightEntity):
             await asyncio.sleep(0.7)  # give time to transition before HA request update
             return
 
-        if ATTR_COLOR_TEMP in kwargs:
+        if ATTR_COLOR_TEMP in kwargs and ColorMode.COLOR_TEMP in self.supported_color_modes:
             mireds = kwargs[ATTR_COLOR_TEMP]
             temp_in_k = int(mired_to_kelvin(mireds))
             scaled_temp_in_k = self.scale_temp(temp_in_k)
@@ -299,15 +299,6 @@ class YeelightBT(LightEntity):
 
         # if ATTR_EFFECT in kwargs:
         #    self._effect = kwargs[ATTR_EFFECT]
-        
-        if ColorMode.HS in self.supported_color_modes and ATTR_HS_COLOR in kwargs:
-            rgb = color_hs_to_RGB(*kwargs[ATTR_HS_COLOR])
-            await self._dev.set_color(*rgb)
-    
-        if ColorMode.COLOR_TEMP in self.supported_color_modes and ATTR_COLOR_TEMP in kwargs:
-            mireds = kwargs[ATTR_COLOR_TEMP]
-            temp_in_k = int(mired_to_kelvin(mireds))
-            await self._dev.set_temperature(temp_in_k)    
 
     async def async_turn_off(self, **kwargs: int) -> None:
         """Turn the light off."""
