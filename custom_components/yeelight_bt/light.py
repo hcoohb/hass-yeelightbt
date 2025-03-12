@@ -169,8 +169,8 @@ class YeelightBT(LightEntity):
 
     @property
     def color_temp(self) -> int:
-        """Return the CT color temperature."""
-        return self._ct
+        """Return the CT color temperature in Kelvin."""
+        return self._attr_color_temp_kelvin
 
     # @property
     # def effect_list(self):
@@ -216,8 +216,7 @@ class YeelightBT(LightEntity):
         self._brightness = int(round(255.0 * self._dev.brightness / 100))
         self._is_on = self._dev.is_on
         if self._dev.mode == self._dev.MODE_WHITE:
-            temp_in_k = int(self.scale_temp_reversed(self._dev.temperature))
-            self._ct = int(kelvin_to_mired(temp_in_k))
+            self._attr_color_temp_kelvin = int(self.scale_temp_reversed(self._dev.temperature))
             self._rgb = (0, 0, 0)
         else:
             self._ct = 0
@@ -278,7 +277,7 @@ class YeelightBT(LightEntity):
                 f"Trying to set temp:{scaled_temp_in_k} with brightness:{brightness_dev}"
             )
             await self._dev.set_temperature(scaled_temp_in_k, brightness=brightness_dev)
-            self._ct = kelvin_to_mired(temp_in_k)
+            self._attr_color_temp_kelvin = temp_in_k
             # assuming new state before lamp update comes through:
             self._brightness = brightness_dev
             await asyncio.sleep(0.7)  # give time to transition before HA request update
