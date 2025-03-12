@@ -9,7 +9,7 @@ import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.components.light import (  # ATTR_EFFECT,; SUPPORT_EFFECT,
     ATTR_BRIGHTNESS,
-    ATTR_COLOR_TEMP,
+    ATTR_COLOR_TEMP_KELVIN,
     ATTR_HS_COLOR,
     ENTITY_ID_FORMAT,
     PLATFORM_SCHEMA,
@@ -85,12 +85,8 @@ class YeelightBT(LightEntity):
         self._dev = Lamp(ble_device)
         self._dev.add_callback_on_state_changed(self._status_cb)
         self._prop_min_max = self._dev.get_prop_min_max()
-        self._min_mireds = kelvin_to_mired(
-            self._prop_min_max["temperature"]["max"]
-        )  # reversed scale
-        self._max_mireds = kelvin_to_mired(
-            self._prop_min_max["temperature"]["min"]
-        )  # reversed scale
+        self._attr_min_color_temp_kelvin = self._prop_min_max["temperature"]["min"]
+        self._attr_max_color_temp_kelvin = self._prop_min_max["temperature"]["max"]
 
     async def async_added_to_hass(self) -> None:
         """Run when entity about to be added to hass."""
@@ -149,14 +145,14 @@ class YeelightBT(LightEntity):
         return self._name
 
     @property
-    def min_mireds(self) -> float:
-        """Return minimum supported color temperature."""
-        return self._min_mireds
+    def min_color_temp_kelvin(self) -> int:
+        """Return the minimum supported color temperature in Kelvin."""
+        return self._attr_min_color_temp_kelvin
 
     @property
-    def max_mireds(self) -> float:
-        """Return minimum supported color temperature."""
-        return self._max_mireds
+    def max_color_temp_kelvin(self) -> int:
+        """Return the maximum supported color temperature in Kelvin."""
+        return self._attr_max_color_temp_kelvin
 
     @property
     def brightness(self) -> int:
@@ -258,7 +254,7 @@ class YeelightBT(LightEntity):
             await self._dev.turn_on()
             if any(
                 keyword in kwargs
-                for keyword in (ATTR_HS_COLOR, ATTR_COLOR_TEMP, ATTR_BRIGHTNESS)
+                for keyword in (ATTR_HS_COLOR, ATTR_COLOR_TEMP_KELVIN, ATTR_BRIGHTNESS)
             ):
                 await asyncio.sleep(0.5)  # wait for the lamp to turn on
         self._is_on = True
@@ -275,15 +271,14 @@ class YeelightBT(LightEntity):
             await asyncio.sleep(0.7)  # give time to transition before HA request update
             return
 
-        if ATTR_COLOR_TEMP in kwargs and ColorMode.COLOR_TEMP in self.supported_color_modes:
-            mireds = kwargs[ATTR_COLOR_TEMP]
-            temp_in_k = int(mired_to_kelvin(mireds))
+        if ATTR_COLOR_TEMP_KELVIN in kwargs and ColorMode.COLOR_TEMP in self.supported_color_modes:
+            temp_in_k = kwargs[ATTR_COLOR_TEMP_KELVIN]
             scaled_temp_in_k = self.scale_temp(temp_in_k)
             _LOGGER.debug(
                 f"Trying to set temp:{scaled_temp_in_k} with brightness:{brightness_dev}"
             )
             await self._dev.set_temperature(scaled_temp_in_k, brightness=brightness_dev)
-            self._ct = mireds
+            self._ct = kelvin_to_mired(temp_in_k)
             # assuming new state before lamp update comes through:
             self._brightness = brightness_dev
             await asyncio.sleep(0.7)  # give time to transition before HA request update
