@@ -1,0 +1,66 @@
+{
+  "config": {
+    "flow_title": "{name} [{mac}] {rssi}dB",
+    "step": {
+      "user": {
+        "title": "Yeelight Bluetooth",
+        "description": "Enter the Yeelight bluetooth name and mac address.",
+        "data": {
+          "name": "Name given to the Lamp",
+          "mac": "MAC address"
+        }
+      },
+      "init": {
+        "title": "Fill in your Lamp information",
+        "description": "Device: {name} [{mac}]",
+        "data": {
+          "name": "The Lamp name",
+          "conf_adapter": "The bluetooth adapter to use:"
+        },
+        "data_description":{
+          "conf_adapter": "This list all bluetooth adapters that have discovered the lamp. The next step will pair this adapter to the lamp."
+        }
+      },
+      "set_pairing":{
+        "title": "Pairing step"
+      },
+      "wait_pairing":{
+        "title": "Pairing step"
+      },
+      "finish":{
+        "title": "Finishing step",
+        "description":"All done. The lamp can be paired to a different adapter in the configuration dialog."
+      }
+      
+    },
+    "progress": {
+      "set_pairing": "Requesting pairing with the lamp.",
+      "wait_pairing": "Push the button of the lamp"
+    },
+    "error": {
+      "general_error": "There was an unknown error.",
+      "cannot_connect": "Failed to connect",
+      "BTLEDisconnectError": "Bluetooth connection error while trying to scan. Make sure nothing else is using bluetooth.",
+      "BTLEManagementError": "Could not start a bluetooth scan. It is very likely some permission errors. Follow directions from github repo."
+    },
+    "abort": {
+      "already_configured": "This mac address is already registered.",
+      "no_devices_found": "No devices found during this scan. Ensure the lamp is not connected to another app. Resetting the lamp may help.",
+      "pairing_needs_reset": "The light needs to be reset to be paired"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Yeelight Bluetooth Options",
+        "description": "Increasing the scan interval to 10 minutes and disabling persistant connections may save battery. Set the bluetooth adapter to 'local' avoid using BTProxy, or pick manually if you have multiple available and want to distribute connection across them.",
+        "data": {
+          "scan_interval": "Scan interval in minutes",
+          "conf_adapter": "Bluetooth adapter",
+          "conf_stay_connected": "Keep bluetooth connection open",
+          "conf_debug_mode": "Debug mode. Adds extra entities for debugging."
+        }
+      }
+    }
+  }
+}

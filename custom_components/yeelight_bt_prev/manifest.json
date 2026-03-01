@@ -1,0 +1,22 @@
+{
+  "domain": "yeelight_bt",
+  "name": "Yeelight bluetooth",
+  "bluetooth": [
+    {
+      "connectable": true,
+      "local_name": "XMCTD_*"
+    },
+    {
+      "connectable": true,
+      "local_name": "yeelight_ms*"
+    }
+  ],
+  "codeowners": ["@hcoohb"],
+  "config_flow": true,
+  "dependencies": ["bluetooth"],
+  "documentation": "https://github.com/hcoohb/hass-yeelightbt",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/hcoohb/hass-yeelightbt/issues",
+  "loggers": ["bleak"],
+  "version": "1.3.0"
+}
