@@ -1,0 +1,19 @@
+{
+    "config": {
+      "flow_title": "Test Comp - ProgressFlow",
+      "step": {
+        "user": {
+          "title": "Pre-progress",
+          "description": "Two tasks of 10s will be started one after the other"
+        },
+        "progress":{
+          "title": "Progress step"
+        }
+      },
+      "progress": {
+        "task_one": "This is the text for task ONE.",
+        "task_two": "This is the text for task TWO."
+      }
+    }
+  }
+  
