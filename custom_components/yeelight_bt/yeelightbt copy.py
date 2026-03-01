@@ -67,10 +67,8 @@ def model_from_name(ble_name: str) -> str:
     return model
 
 
-class Lamp:
-    """The class that represents a Yeelight lamp
-    A Lamp object describe a real world Yeelight lamp.
-    """
+class YeelightBT:
+    """Representation of a Yeelight lamp"""
 
     MODE_COLOR = 0x01
     MODE_WHITE = 0x02

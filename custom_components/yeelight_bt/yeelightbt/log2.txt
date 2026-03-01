@@ -1,0 +1,84 @@
+trying to reconnect with pushing small button
+ python example.py 
+2025-01-20 22:14:46,835 DEBUG:selector_events:__init__: Using selector: EpollSelector
+2025-01-20 22:14:47,367 INFO:example:callback: Found lamp: F8:24:41:E6:3E:39: XMCTD_, with advData: AdvertisementData(local_name='XMCTD_', manufacturer_data={356: b'\xf8$A\xe6>9', 510: b'\x01\x00\x00\x00\x00\x00\x00'}, service_uuids=['0000fe87-0000-1000-8000-00805f9b34fb', '0000fee7-0000-1000-8000-00805f9b34fb'], tx_power=0, rssi=-73)
+2025-01-20 22:14:47,375 DEBUG:yeelightbt:get_state: XMCTD_: get_state
+2025-01-20 22:14:47,376 DEBUG:yeelightbt:_ensure_connected: XMCTD_: Connecting; RSSI: None
+2025-01-20 22:14:47,378 DEBUG:__init__:establish_connection: XMCTD_ - F8:24:41:E6:3E:39: Connection attempt: 1
+2025-01-20 22:14:47,378 DEBUG:client:connect: Connecting to device @ F8:24:41:E6:3E:39
+2025-01-20 22:14:47,380 WARNING:version:check_bluez_version: Could not determine BlueZ version, bluetoothctl not available, assuming 5.51+
+2025-01-20 22:14:47,381 DEBUG:client:connect: Connecting to BlueZ path /org/bluez/hci0/dev_F8_24_41_E6_3E_39
+2025-01-20 22:14:54,046 DEBUG:__init__:establish_connection: XMCTD_ - F8:24:41:E6:3E:39: Connected after 1 attempts
+2025-01-20 22:14:54,046 DEBUG:yeelightbt:_ensure_connected: XMCTD_: Connected; RSSI: None
+2025-01-20 22:14:54,047 DEBUG:yeelightbt:_ensure_connected: XMCTD_: Subscribe to notifications; RSSI: None
+2025-01-20 22:14:54,685 DEBUG:yeelightbt:execute: TX: b'Cg\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', AuthCommand
+2025-01-20 22:14:54,686 DEBUG:yeelightbt:send_cmd: TX: 436702000000000000000000000000000000 on aa7d3f34-2d4f-41e0-807f-52fbf8cf7443
+2025-01-20 22:14:54,831 DEBUG:client:write_gatt_char: Write Characteristic aa7d3f34-2d4f-41e0-807f-52fbf8cf7443 | /org/bluez/hci0/dev_F8_24_41_E6_3E_39/service0010/char0011: b'Cg\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+2025-01-20 22:14:54,832 DEBUG:yeelightbt:_notification_handler: RX: 436301000000000000000000000000000000 on char handle 14
+2025-01-20 22:14:54,833 DEBUG:yeelightbt:extract: Auth response got status 1
+2025-01-20 22:14:54,834 DEBUG:yeelightbt:_notification_handler: RX: rsp_id:0x63 (AuthResponse)
+2025-01-20 22:14:54,834 DEBUG:yeelightbt:handle_auth_notif: In auth_handler with: 1
+2025-01-20 22:14:54,834 DEBUG:yeelightbt:_notification_handler: RX-once: rsp_id:0x63 (AuthResponse)
+2025-01-20 22:14:54,835 DEBUG:yeelightbt:execute: TX: b'CD\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', StatusCommand
+2025-01-20 22:14:54,835 DEBUG:yeelightbt:send_cmd: TX: 434402000000000000000000000000000000 on aa7d3f34-2d4f-41e0-807f-52fbf8cf7443
+2025-01-20 22:14:54,928 DEBUG:client:write_gatt_char: Write Characteristic aa7d3f34-2d4f-41e0-807f-52fbf8cf7443 | /org/bluez/hci0/dev_F8_24_41_E6_3E_39/service0010/char0011: b'CD\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+2025-01-20 22:14:54,978 DEBUG:yeelightbt:_notification_handler: RX: 434501010a3264005c00001a000000000000 on char handle 14
+2025-01-20 22:14:54,979 DEBUG:yeelightbt:_notification_handler: RX: rsp_id:0x45 (StatusResponse)
+2025-01-20 22:14:54,979 DEBUG:yeelightbt:handle_state_notif: Calling callbacks with status: YbtState(power=<Power.ON: 1>, mode=<Mode.COLOR: 1>, brightness=92, temperature=0, rbg=None)
+2025-01-20 22:14:54,980 DEBUG:yeelightbt:_notification_handler: RX-once: rsp_id:0x45 (StatusResponse)
+get_state_res YbtState(power=<Power.ON: 1>, mode=<Mode.COLOR: 1>, brightness=92, temperature=0, rbg=None)
+2025-01-20 22:14:56,983 DEBUG:yeelightbt:execute: TX: b'CA\n2d\x01\\\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', ColorCommand
+2025-01-20 22:14:56,984 DEBUG:yeelightbt:send_cmd: TX: 43410a3264015c0000000000000000000000 on aa7d3f34-2d4f-41e0-807f-52fbf8cf7443
+2025-01-20 22:14:57,121 DEBUG:client:write_gatt_char: Write Characteristic aa7d3f34-2d4f-41e0-807f-52fbf8cf7443 | /org/bluez/hci0/dev_F8_24_41_E6_3E_39/service0010/char0011: b'CA\n2d\x01\\\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+2025-01-20 22:14:57,322 DEBUG:yeelightbt:execute: TX: b'CR\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', NameCommand
+2025-01-20 22:14:57,322 DEBUG:yeelightbt:send_cmd: TX: 435200000000000000000000000000000000 on aa7d3f34-2d4f-41e0-807f-52fbf8cf7443
+2025-01-20 22:14:57,417 DEBUG:client:write_gatt_char: Write Characteristic aa7d3f34-2d4f-41e0-807f-52fbf8cf7443 | /org/bluez/hci0/dev_F8_24_41_E6_3E_39/service0010/char0011: b'CR\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+2025-01-20 22:14:57,515 DEBUG:yeelightbt:_notification_handler: RX: 435301000000000000000000000000000000 on char handle 14
+2025-01-20 22:14:57,516 INFO:yeelightbt:extract: Name: Yeelight Beds from data: b'CQ\x01\x00\rYeelight Beds'
+2025-01-20 22:14:57,516 DEBUG:yeelightbt:_notification_handler: RX-once: rsp_id:0x53 (NameResponse)
+2025-01-20 22:14:57,517 DEBUG:yeelightbt:_notification_handler: RX: 435301010000000000000000000000000000 on char handle 14
+2025-01-20 22:14:58,441 DEBUG:yeelightbt:_notification_handler: RX: 436302000000000000000000000000000000 on char handle 14
+2025-01-20 22:14:58,442 DEBUG:yeelightbt:extract: Auth response got status 2
+2025-01-20 22:14:58,442 DEBUG:yeelightbt:_notification_handler: RX: rsp_id:0x63 (AuthResponse)
+2025-01-20 22:14:58,443 DEBUG:yeelightbt:handle_auth_notif: In auth_handler with: 2
+2025-01-20 22:14:59,519 DEBUG:yeelightbt:turn_off: XMCTD_: Turn off
+2025-01-20 22:14:59,520 DEBUG:yeelightbt:execute: TX: b'C@\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', PowerCommand
+2025-01-20 22:14:59,520 DEBUG:yeelightbt:send_cmd: TX: 434002000000000000000000000000000000 on aa7d3f34-2d4f-41e0-807f-52fbf8cf7443
+2025-01-20 22:14:59,658 DEBUG:client:write_gatt_char: Write Characteristic aa7d3f34-2d4f-41e0-807f-52fbf8cf7443 | /org/bluez/hci0/dev_F8_24_41_E6_3E_39/service0010/char0011: b'C@\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+2025-01-20 22:15:00,287 DEBUG:client:on_connected_changed: Device disconnected (/org/bluez/hci0/dev_F8_24_41_E6_3E_39)
+2025-01-20 22:15:00,288 DEBUG:client:_cleanup_all: _cleanup_all(/org/bluez/hci0/dev_F8_24_41_E6_3E_39)
+2025-01-20 22:15:00,289 WARNING:yeelightbt:_disconnected: XMCTD_: Device unexpectedly disconnected; RSSI: None
+2025-01-20 22:15:00,289 DEBUG:yeelightbt:_execute_disconnect: XMCTD_: Execute disconnect
+2025-01-20 22:15:00,291 DEBUG:yeelightbt:_reset: XMCTD_: reset
+2025-01-20 22:15:00,291 DEBUG:yeelightbt:_execute_disconnect: XMCTD_: Execute disconnect done
+Traceback (most recent call last):
+  File "/config/workspace/Devel/hass-yeelightbt/custom_components/yeelight_bt/yeelightbt/yeelightbt.py", line 855, in _execute
+    result = await rsp_fut
+             ^^^^^^^^^^^^^
+asyncio.exceptions.CancelledError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/config/workspace/Devel/hass-yeelightbt/custom_components/yeelight_bt/example.py", line 98, in <module>
+    asyncio.run(main(sys.argv[1] if len(sys.argv) == 2 else ADDRESS))
+  File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/config/workspace/Devel/hass-yeelightbt/custom_components/yeelight_bt/example.py", line 86, in main
+    await lamp.turn_off()
+  File "/config/workspace/Devel/hass-yeelightbt/custom_components/yeelight_bt/yeelightbt/yeelightbt.py", line 574, in turn_off
+    return await self._execute(proc)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/config/workspace/Devel/hass-yeelightbt/.venv/lib/python3.12/site-packages/bleak_retry_connector/__init__.py", line 505, in _async_wrap_bluetooth_connection_error_retry
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/config/workspace/Devel/hass-yeelightbt/custom_components/yeelight_bt/yeelightbt/yeelightbt.py", line 864, in _execute
+    raise Disconnected(self._disconnect_reason) from err
+yeelightbt.errors.Disconnected: UNEXPECTED

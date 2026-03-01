@@ -1,13 +1,18 @@
-[tool.isort]
-profile = "black"
+[project]
+name = "hass-yeelightbt"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "bleak-retry-connector>=3.6.0",
+    "bleak>=0.22.3",
+]
 
-[tool.mypy]
-check_untyped_defs = true
-disallow_any_generics = true
-disallow_incomplete_defs = true
-disallow_untyped_defs = true
-mypy_path = "custom_components/yeelight_bt"
-no_implicit_optional = true
-show_error_codes = true
-warn_unreachable = true
-warn_unused_ignores = true
+[dependency-groups]
+dev = [
+    "homeassistant>=2023.7.3",
+    "ipykernel>=6.29.5",
+    "pre-commit>=4.0.1",
+    "ruff>=0.7.3",
+]

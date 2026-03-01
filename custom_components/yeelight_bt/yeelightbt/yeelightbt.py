@@ -7,19 +7,15 @@ Source  : https://github.com/hcoohb/hass-yeelightbt
 # Standard imports
 from __future__ import annotations
 from dataclasses import dataclass
-import codecs
 import asyncio
-import enum
 import logging
+from enum import IntEnum
 import struct
-from typing import Any, Callable, cast
+from typing import Callable, cast, Any
 from abc import ABC, abstractmethod
 
 # Local imports
-# from .connection import Connection, PairingStatus
 from .models import LampModel as Model, DeviceInfo, DisconnectReason
-from .commands import _CMD_T, Command, parse_command, YbtState, AssociationStatus
-from . import commands as cmds
 from .errors import InvalidCommand, YBTError, Timeout, Disconnected, NotConnected
 
 # 3rd party imports
@@ -36,65 +32,13 @@ from bleak_retry_connector import (
 
 _LOGGER = logging.getLogger(__name__)
 
+
 DEFAULT_ATTEMPTS = 3
 
-DISCONNECT_DELAY = 30
+DISCONNECT_DELAY = 300
 
 PROP_WRITE_UUID = "aa7d3f34-2d4f-41e0-807f-52fbf8cf7443"
 PROP_NTFY_UUID = "8f65073d-9f57-4aaa-afea-397d19d5bbeb"
-
-
-COMMAND_STX = 0x43
-CMD_PAIR = 0x67
-CMD_PAIR_ON = 0x02
-RES_PAIR = 0x63
-CMD_POWER = 0x40
-CMD_POWER_ON = 0x01
-CMD_POWER_OFF = 0x02
-CMD_COLOR = 0x41
-CMD_BRIGHTNESS = 0x42
-CMD_TEMP = 0x43
-CMD_RGB = 0x41
-CMD_GETSTATE = 0x44
-CMD_GETSTATE_SEC = 0x02
-RES_GETSTATE = 0x45
-CMD_GETNAME = 0x52
-RES_GETNAME = 0x53
-CMD_GETVER = 0x5C
-RES_GETVER = 0x5D
-CMD_GETSERIAL = 0x5E
-RES_GETSERIAL = 0x5F
-RES_GETTIME = 0x62
-
-
-class Status(enum.Enum):
-    ON = CMD_POWER_ON
-    OFF = CMD_POWER_OFF
-
-
-# @dataclass
-# class YbtState:
-#     model: Model
-#     status: Status | None = None
-#     mode: Mode | None = None
-#     brightness: int = 0  # [1-100]
-#     temperature: int | None = None  # [1700-6500]
-#     rbg: tuple[int] | None = None  # [0-255]
-
-#     def parse_state(self, data: bytearray):
-#         state = struct.unpack(">xxBBBBBBBhx6x", data)
-#         self.status = Status(state[0])
-#         if self.model == Model.CANDELA:
-#             self.brightness = state[1]
-#             self.mode = Mode(state[2])
-#             # Not entirely sure this is the mode...
-#             # Candela seems to also give something in state 3 and 4...
-#         else:
-#             self.mode = Mode(state[1])  # Mode only given if connection is paired
-#             self.rgb = (state[2], state[3], state[4])  # , state[5])
-#             self.brightness = state[6]
-#             self.temperature = state[7]
-#         _LOGGER.info(f"YBT state: {self}")
 
 
 @dataclass
@@ -112,14 +56,47 @@ class YbtData:
         _LOGGER.info(f"YBT exposes serial: {self.serial}")
 
 
-class Conn(enum.Enum):
-    DISCONNECTED = 1
-    UNPAIRED = 2
-    PAIRING = 3
-    PAIRED = 4
+class AuthStatus(IntEnum):
+    NOT_PAIRED = 1
+    PAIRING = 2
+    PAIRED = 3
 
 
-_LOGGER = logging.getLogger(__name__)
+class AuthRspStatus(IntEnum):
+    """Status report type"""
+
+    REQUESTING_PAIR = 0x01
+    SUCCESSFULLY_PAIRED = 0x02
+    NOT_PAIRED = 0x03
+    ALREADY_PAIRED = 0x04
+    DISCONNECTING_NOW = 0x06  # factory reset required
+    DISCONNECTING_SOON_2 = 0x07
+
+
+class Power(IntEnum):
+    ON = 0x01
+    OFF = 0x02
+
+
+class Mode(IntEnum):
+    COLOR = 0x01
+    WHITE = 0x02
+    FLOW = 0x03
+
+
+class VersionRunning(IntEnum):
+    APP1 = 0x01
+    APP2 = 0x02
+    CANDELA = 0x31
+
+
+@dataclass
+class Versions:
+    current_running: VersionRunning
+    hw_version: int
+    sw_version_app1: int
+    sw_version_app2: int
+    beacon_version: int
 
 
 def ybt_model_from_ble_name(ble_name: str) -> Model:
@@ -137,120 +114,186 @@ def ybt_display_name(ble_name: str, address: str) -> str:
     return f"{model}_{address.replace(':', '')[-4:]}"
 
 
-class BaseProcedure(ABC):
+class BaseCommand(ABC):
     """Base class for procedures."""
 
-    enable_notifications: bool = False
-    need_auth: bool = False
+    need_auth = True
+    cmd_id = None
+    cmd_format = None
+    cmd_data = None
+    response = None
 
     def __init__(self, lamp: YeelightBT) -> None:
         """Initialize."""
+        if self.cmd_id is None:
+            _LOGGER.error("CMD_ID error | not defined")
+            raise ValueError
+        self._lamp: YeelightBT = lamp
+
+    @property
+    def _header(self) -> bytes:
+        """Return packed header."""
+        return struct.pack(">BB", 0x43, self.cmd_id)  # big endian format
+
+    def set_data(self, data_list: list):
+        self.cmd_data = data_list
+
+    def _pack(self) -> bytes:
+        """Pack the command to bytes."""
+        if self.cmd_format and not self.cmd_data:
+            _LOGGER.error(
+                f"PACKING error | {self.__class__.__name__} | format:{self.cmd_format}, data:{self.cmd_data}"
+            )
+            raise ValueError
+        fmt = "" if self.cmd_format is None else self.cmd_format
+        data = [] if self.cmd_data is None else self.cmd_data
+        if not fmt.startswith(">"):
+            fmt = ">" + fmt  # big endian format
+        # add end padding
+        if (fmt_len := struct.calcsize(fmt)) < 16:
+            fmt = f"{fmt}{16-fmt_len}x"
+        return self._header + struct.pack(fmt, *data)
+
+    async def execute(self) -> bool:
+        """Execute the procedure"""
+        cmd_bytes = self._pack()
+        _LOGGER.debug(f"TX: {cmd_bytes.hex()} | ({self.__class__.__name__})")
+        await self._lamp.send_cmd(cmd_bytes)
+        return True
+
+
+class BaseResponse(ABC):
+    rsp_id: int | None = None
+    rsp_format: str | None = None
+    rsp_packets: int = 1
+
+    def __init__(self, lamp: YeelightBT) -> None:
+        """Initialize."""
+        if self.rsp_id is None:
+            _LOGGER.error(f"RSP_ID error | not defined for {self.__class__.__name__}")
+            raise ValueError
         self._lamp = lamp
 
+    def _unpack(self, data: bytes) -> tuple:
+        if not self.rsp_format:
+            _LOGGER.error(
+                f"UNPACKING error | {self.__class__.__name__} | no format definied :{self.rsp_format}"
+            )
+            raise ValueError
+        fmt = self.rsp_format
+        fmt = fmt if fmt.startswith(">") else (">" + fmt)
+        return struct.unpack_from(fmt, data, 2)
+
     @abstractmethod
-    async def execute(self) -> bool:
-        """Execute the procedure"""
+    def extract(self, data: bytes):
+        pass
 
 
-class NullProcedure(BaseProcedure):
-    """Do nothing."""
-
-    enable_notifications = True
-    need_auth = True
-
-    async def execute(self) -> bool:
-        """Execute the procedure"""
-        return True
+@dataclass
+class YbtState:
+    power: Power | None = None
+    mode: Mode | None = None
+    brightness: int = 0  # [1-100]
+    temperature: int | None = None  # [1700-6500]
+    rgb: tuple[int, int, int] | None = None  # [0-255]
 
 
-class AssociationProcedure(BaseProcedure):
-    """Associate to the lamp ."""
+class AuthResponse(BaseResponse):
+    rsp_id = 0x63
+    rsp_format = "B"
 
-    enable_notifications = False
+    def extract(self, data: bytes) -> AuthRspStatus:
+        status = AuthRspStatus(self._unpack(data)[0])
+        return status
+
+
+class AuthCommand(BaseCommand):
+    """Authentication of the lamp ."""
+
     need_auth = False
+    cmd_id = 0x67
+    cmd_format = "B"
+    cmd_data = [0x02]
+    response = AuthResponse
 
-    # Unlock procedure:
-    # -> AssociationCmd
-    # <- AssociationRsp
-
-        # if fut := self._command_handlers_oneshot.pop(command.cmd_id, None):
-        #     if fut and not fut.done():
-        #         fut.set_result(command)
-    async def execute(self) -> bool:
-        """Execute the procedure"""
-
-        fut: asyncio.Future[_CMD_T] = asyncio.Future()
-        def wait_association(rsp:cmds.AssociationRsp):
-            print(f"in wait ass: {rsp.pair_status} {rsp.pair_status.name}")
-            if (rsp.pair_status == AssociationStatus.ALREADY_PAIRED) or (rsp.pair_status == AssociationStatus.SUCCESSFULLY_PAIRED):
-                if fut and not fut.done():
-                    print("passing future")
-                    fut.set_result(rsp)
-        self._lamp.on_receive_notifs(cmds.AssociationRsp, wait_association)
-
-        # ass_rsp_fut = self._lamp.receive_notif_once(cmds.AssociationRsp)
-        await self._lamp.send_cmd(cmds.AssociationCmd())
-        # await ass_rsp_fut
-        await fut
-        print(fut.result())
-        print("finished Association")
-
-        return True
+    # -> AuthCommand
+    # <- AuthResponse
 
 
-class StatusProcedure(BaseProcedure):
-    """Get lamp status."""
+class StateResponse(BaseResponse):
+    rsp_id = 0x45
+    rsp_format = "BBBBBxBH"
 
-    enable_notifications = False
-    need_auth = False
+    def extract(self, data: bytes) -> YbtState:
+        """Initialize from serialized representation."""
+        state = YbtState()
+        res = self._unpack(data)
+        state.power = Power(res[0])
 
-    # Unlock procedure:
-    # -> StatusRequestCmd
-    # <- StatusRsp (handled in general notif)
+        # if self_lamp.model == Model.CANDELA:
+        #     self.brightness = res[1]
+        #     self.mode = Mode(res[2])
+        #     # Not entirely sure this is the mode...
+        #     # Candela seems to also give something in state 3 and 4...
+        # else:
+        state.mode = Mode(res[1])  # Mode only given if connection is paired
+        rgb = (res[2], res[3], res[4])
+        state.rgb = rgb
+        state.brightness = res[5]
+        state.temperature = res[6]
+        _LOGGER.info(f"Data {data.hex()}")
+        _LOGGER.info(
+            f"R:{res[2]}, G:{res[3]}, B:{res[4]}_{rgb}_{state.rgb}- Temp:{res[6]}"
+        )
+        _LOGGER.info(f"YBT state: {self}")
+        # 01 01 64 64 64 00 22 00001f000000000000
+        # YbtState(power=<Power.ON: 1>, mode=<Mode.COLOR: 1>, brightness=34, temperature=7936, rbg=None)
+        # 01  01  64 64 64  00  22  0000  1e000000000000
+        # YbtState(power=<Power.ON: 1>, mode=<Mode.COLOR: 1>, brightness=34, temperature=7680, rbg=None)
+        return state
 
-    async def execute(self) -> bool:
-        """Execute the procedure"""
-        status_rsp_fut = self._lamp.receive_notif_once(cmds.StatusRsp)
-        await self._lamp.send_cmd(cmds.StatusRequestCmd())
-        await status_rsp_fut
-        print("I awaited status rsp")
-        print(f"result is {status_rsp_fut.result()}")
 
-        return True
+class GetStateCommand(BaseCommand):
+    """Get lamp state."""
+
+    need_auth = True  # if False, we will get an answer but lamp disconnects in 7s
+    cmd_id = 0x44
+    cmd_format = "B"
+    cmd_data = [0x02]
+    response = StateResponse
+
+    # -> GetStateCommand
+    # <- StateResponse
 
 
-class PowerProcedure(BaseProcedure):
+class SetPowerCommand(BaseCommand):
     """Power up or down the lamp status."""
 
-    enable_notifications = False
-    need_auth = True
+    need_auth = True  # if not auth before, it will disconnect
+    cmd_id = 0x40
+    cmd_format = "B"
+    response = StateResponse
 
     # Power procedure:
-    # -> PowerCmd
-    # <- StatusRsp
+    # -> SetPowerCommand
+    # <- StateResponse
 
-    def __init__(self, lamp: YeelightBT, power: cmds.Power) -> None:
+    def __init__(self, lamp: YeelightBT, power: Power) -> None:
         """Initialize."""
         super().__init__(lamp)
-        self._power = power
-
-    async def execute(self) -> bool:
-        """Execute the procedure"""
-        # unlock_rsp_fut = self._lock.receive_notif_once(cmds.UnlockRsp)
-        await self._lamp.send_cmd(cmds.PowerCmd(self._power))
-        # await unlock_rsp_fut
-
-        return True
+        self.set_data([power])
 
 
-class BrightnessProcedure(BaseProcedure):
+class SetBrightnessCommand(BaseCommand):
     """Set the brightness of the light"""
 
-    enable_notifications = False
     need_auth = True
+    cmd_id = 0x42
+    cmd_format = "B"  # [0-100] in one byte
+    response = None
 
     # procedure:
-    # -> BrightnessCmd
+    # -> SetBrightnessCommand
     # (no response) but transition takes time so await
     # No effect if lamp is off!
     # Brightness at 0 leaves it unchanged
@@ -258,23 +301,25 @@ class BrightnessProcedure(BaseProcedure):
     def __init__(self, lamp: YeelightBT, brightness: int) -> None:
         """Setting brightness [0-100]."""
         super().__init__(lamp)
-        self._brightness = brightness
+        self.set_data([brightness])
 
     async def execute(self) -> bool:
         """Execute the procedure"""
-        await self._lamp.send_cmd(cmds.BrightnessCmd(self._brightness))
-        await asyncio.sleep(0.2)
+        await super().execute()
+        await asyncio.sleep(0.6)
         return True
 
 
-class TempProcedure(BaseProcedure):
+class SetTempCommand(BaseCommand):
     """Set the temperature brightness of the light"""
 
-    enable_notifications = False
     need_auth = True
+    cmd_id = 0x43
+    # [1700 - 6500 K] in two bytes, [0-100] in one byte , big-endian format
+    cmd_format = "hB"
+    response = None
 
-    # procedure:
-    # -> TemperatureCmd
+    # -> SetTempCommand
     # (no response) but transition takes time so await
     # No effect if lamp is off!
     # Change to WHITE mode
@@ -283,24 +328,27 @@ class TempProcedure(BaseProcedure):
     def __init__(self, lamp: YeelightBT, temp_kelvin: int, brightness: int) -> None:
         """Setting temperature [1700 - 6500] and brightness [0-100]."""
         super().__init__(lamp)
-        self._kelvin = temp_kelvin
-        self._brightness = brightness
+        temp_kelvin = min(6500, max(1700, int(temp_kelvin)))
+        brightness = min(100, max(0, int(brightness)))
+        self.set_data([temp_kelvin, brightness])
 
     async def execute(self) -> bool:
         """Execute the procedure"""
-        await self._lamp.send_cmd(cmds.TemperatureCmd(self._kelvin, self._brightness))
-        await asyncio.sleep(0.2)
+        await super().execute()
+        await asyncio.sleep(0.6)
         return True
 
 
-class ColorProcedure(BaseProcedure):
+class SetColorCommand(BaseCommand):
     """Set the Color brightness of the light"""
 
-    enable_notifications = False
     need_auth = True
+    cmd_id = 0x41
+    # R[0-255], G[0-255], B[0-255], 0x01, brightness[0-100]
+    cmd_format = "BBBBB"
+    response = None
 
-    # procedure:
-    # -> ColorCmd
+    # -> ColorCommand
     # (no response) but transition takes time so await
     # No effect if lamp is off!
     # Change to WHITE mode
@@ -311,111 +359,145 @@ class ColorProcedure(BaseProcedure):
     ) -> None:
         """Setting color R[0-255], G[0-255], B[0-255], and brightness [0-100]."""
         super().__init__(lamp)
-        self._red = red
-        self._green = green
-        self._blue = blue
-        self._brightness = brightness
+        red = min(255, max(0, int(red)))
+        green = min(255, max(0, int(green)))
+        blue = min(255, max(0, int(blue)))
+        brightness = min(100, max(0, int(brightness)))
+        self.set_data([red, green, blue, 0x01, brightness])
 
     async def execute(self) -> bool:
         """Execute the procedure"""
-        await self._lamp.send_cmd(
-            cmds.ColorCmd(self._red, self._green, self._blue, self._brightness)
-        )
-        await asyncio.sleep(0.2)
+        await super().execute()
+        await asyncio.sleep(0.6)
         return True
 
 
-class SerialProcedure(BaseProcedure):
-    """Get lamp serial."""
+# Does not seem to work ????
+# class SerialResponse(BaseResponse):
+#     rsp_id = 0x5F
+#     rsp_format = "B"
 
-    enable_notifications = False
+#     def extract(self, data: bytes):
+#         """Initialize from serialized representation."""
+#         # state = struct.unpack(">xxBBBBBBBhx6x", data)
+#         # instance.power = Power(state[0])
+#         _LOGGER.info(f"Serial data: {data}")
+
+
+# class GetSerialCommand(BaseCommand):
+#     """Get lamp serial."""
+
+#     need_auth = True
+#     cmd_id = 0x5E
+#     response = SerialResponse
+
+
+class VersionsResponse(BaseResponse):
+    rsp_id = 0x5D
+    rsp_format = "BHHHH"
+
+    def extract(self, data: bytes) -> Versions:
+        """Initialize from serialized representation."""
+        vers = self._unpack(data)
+        vers[0] = VersionRunning(vers[0])
+        ver = Versions(*vers)
+        _LOGGER.info(f"Version: {ver} from data: {data}")
+        return ver
+
+
+class GetVersionsCommand(BaseCommand):
+    """Get lamp versions."""  # will send rsp if not, but will also disconnect in 7s
+
     need_auth = True
+    cmd_id = 0x5C
+    response = VersionsResponse
 
-    # Unlock procedure:
-    # -> SerialRequestCmd
-    # <- SerialRsp
+    # -> GetVersionsCommand
+    # <- VersionsResponse
+
+
+class NameResponse(BaseResponse):
+    rsp_id = 0x53
+    rsp_format = "xBx13sxxxBx13s"  # 2 pckts, only first header already removed [idx0, str0, idx1, str1]
+    rsp_packets = 2
+    # two consecutive responses. 4th byte is the index.
+    # data = b"CQ\x01\x00\rYeelight Beds"
+    # data2 = b"CQ\x01\x01\x08ide Lamp\x00\x00\x00\x00\x00"
+    # notif handler concatenate the messages, assuming in correct order
+
+    def extract(self, data: bytes) -> str:
+        """Initialize from serialized representation."""
+        res = self._unpack(data)
+        name = res[1].decode("ascii") + res[3].decode("ascii")
+        return name
+
+
+class GetNameCommand(BaseCommand):
+    """Get lamp Name."""
+
+    need_auth = True  # if False, we will get an answer but lamp disconnects in 7s
+    cmd_id = 0x52
+    response = NameResponse
+
+    # -> GetNameCommand
+    # <- NameResponse
+    # <- NameResponse
+
+
+class SetNameCommand(BaseCommand):
+    """Set lamp Name."""
+
+    need_auth = True  # if False, it will perform action but lamp disconnects in 7s
+    cmd_id = 0x51
+    cmd_format = "BBB13s"
+
+    def __init__(self, lamp: YeelightBT, name: str) -> None:
+        """Setting lamp name."""
+        super().__init__(lamp)
+        self.name: bytes = name[:26].encode("utf-8")
 
     async def execute(self) -> bool:
         """Execute the procedure"""
-        # unlock_rsp_fut = self._lock.receive_notif_once(cmds.UnlockRsp)
-        await self._lamp.send_cmd(cmds.SerialRequestCmd())
-        # await unlock_rsp_fut
-
-        return True
-
-
-class VersionProcedure(BaseProcedure):
-    """Get lamp versions."""
-
-    enable_notifications = False
-    need_auth = True  # will send rsp if not, but will also disconnect
-
-    # Unlock procedure:
-    # -> VersionRequestCmd
-    # <- VersionRsp
-
-    async def execute(self) -> bool:
-        """Execute the procedure"""
-        # unlock_rsp_fut = self._lock.receive_notif_once(cmds.UnlockRsp)
-        await self._lamp.send_cmd(cmds.VersionRequestCmd())
-        # await unlock_rsp_fut
-
-        return True
+        self.set_data([0x01, 0x00, 0x0D, self.name[0:13]])
+        await super().execute()
+        self.set_data([0x01, 0x01, 0x08, self.name[13:]])
+        await super().execute()
 
 
-class NameProcedure(BaseProcedure):
-    """Get lamp name."""
-
-    enable_notifications = False
-    need_auth = True  # will send rsp without but will also disconnect in 7s
-
-    # Unlock procedure:
-    # -> NameRequestCmd
-    # <- NameRsp
-    # <- NameRsp
-
-    async def execute(self) -> bool:
-        """Execute the procedure"""
-        # unlock_rsp_fut = self._lock.receive_notif_once(cmds.UnlockRsp)
-        await self._lamp.send_cmd(cmds.NameRequestCmd())
-        # await unlock_rsp_fut
-
-        return True
+class GetStatsCommand(BaseCommand):
+    need_auth = True  # ??
+    cmd_id = 0x8C
+    # -> GetStatsCommand
+    # <- Stats1Rsp 438d00000000000000060000000000000000
+    # <- Stats2Rsp 438e00000000000000000000000000000000
+    # <- Stats3Rsp 438f00000000000000000000000000000000
+    # <- Stats4Rsp 439000000000000000000000000000000000
+    # <- Stats5Rsp 439100000000000000000000000000000000
 
 
-class FactoryResetProcedure(BaseProcedure):
-    need_auth = False  # TODO: I think needs yes
-    # Facory reset pro:
+class FactoryResetResponse(BaseResponse):
+    rsp_id = 0x82
+    rsp_format = "xB"
+    # 438243740100000000000000000000000000 # factory reset ok?
+    # 438243540100000000000000000000000000 # enabling beacon ?
+
+    def extract(self, data: bytes) -> str:
+        """Initialize from serialized representation."""
+        res = self._unpack(data)
+        _LOGGER.info(f"FactoryReset: code {res[0]} from data: {data}")
+        return res[0]
+
+
+class FactoryResetCommand(BaseCommand):
+    """Get lamp versions."""  # will send rsp if not, but will also disconnect in 7s
+
+    need_auth = True  # TODO: I think needs yes
+    cmd_id = 0x74
+    response = FactoryResetResponse
+
     # -> FactoryResetRequestCmd
     # <- FactoryResetRsp1
     # <- FactoryResetRsp2
-
-    async def execute(self) -> bool:
-        await self._lamp.send_cmd(cmds.FactoryResetRequestCmd())
-        return True
-
-
-# class ChangeModeProcedure(BaseProcedure):
-#     """Change mode of a lock."""
-
-#     enable_notifications = True
-#     need_auth = True
-
-#     # Change mode procedure:
-#     # -> ChangeModeCmd
-#     # <- StatusReportCmd (if lock/unlock)
-
-#     def __init__(self, lock: DKEYLock, mode: cmds.LockMode) -> None:
-#         """Initialize."""
-#         super().__init__(lock)
-#         self._mode = mode
-
-#     async def execute(self) -> bool:
-#         """Execute the procedure"""
-
-#         await self._lock.send_cmd(cmds.ChangeModeCmd(self._mode))
-
-#         return True
 
 
 class YeelightBT:
@@ -427,26 +509,47 @@ class YeelightBT:
         """Initialize."""
         self._advertisement_data = advertisement_data
         self._authenticated: bool = False
-        self._associated: bool = False
+        self._auth_status: AuthStatus = AuthStatus.NOT_PAIRED
         self._ble_device = ble_device
-        self._callbacks: list[Callable[[cmds.YbtState], None]] = []
+        self._callbacks: list[Callable[[YbtState], None]] = []
         self._client: BleakClient | None = None
-        self._command_handlers: dict[int, Callable[[Command], None]] = {}
-        self._command_handlers_oneshot: dict[int, asyncio.Future[Command]] = {}
+        self._reponse_handlers: dict[BaseResponse, callable] = {}
+        self._reponse_handlers_once: dict[BaseResponse, asyncio.Future] = {}
+        self._response_counters: dict[int, list[bytes]] = {}
         self._connect_lock: asyncio.Lock = asyncio.Lock()
-        self._notifications_enabled: bool = False
+        self._notif_enabled: bool = True
         self._expected_disconnect: bool = False
         self._disconnect_reason: DisconnectReason | None = None
         self._disconnect_timer: asyncio.TimerHandle | None = None
         self._procedure_lock: asyncio.Lock = asyncio.Lock()
         self.loop = asyncio.get_running_loop()
         self.device_info = DeviceInfo()
-        
+
         # Adding a handler for state notifs
-        def handle_state_notif(cmd:cmds.StatusRsp):
+        def handle_state_notif(state: YbtState):
+            _LOGGER.debug(f"Calling callbacks with status: {state}")
             for callback in self._callbacks:
-                callback(cmd.YbtState)
-        self.on_receive_notifs(cmds.StatusRsp, handle_state_notif)
+                callback(state)
+
+        def handle_auth_notif(rsp_status: AuthRspStatus):
+            _LOGGER.debug(f"Auth_rsp_handler with: <{rsp_status.name}: {rsp_status}>")
+            self._auth_status = self._auth_resp_to_auth_status(rsp_status)
+
+        self._add_response_handler(AuthResponse, handle_auth_notif)
+        self._add_response_handler(StateResponse, handle_state_notif)
+
+    @staticmethod
+    def _auth_resp_to_auth_status(auth_resp: AuthRspStatus) -> AuthStatus:
+        if (
+            auth_resp == AuthRspStatus.ALREADY_PAIRED
+            or auth_resp == AuthRspStatus.SUCCESSFULLY_PAIRED
+        ):
+            status = AuthStatus.PAIRED
+        elif auth_resp == AuthRspStatus.REQUESTING_PAIR:
+            status = AuthStatus.PAIRING
+        else:
+            status = AuthStatus.NOT_PAIRED
+        return status
 
     def set_ble_device_and_advertisement_data(
         self, ble_device: BLEDevice, advertisement_data: AdvertisementData
@@ -472,66 +575,106 @@ class YeelightBT:
             return self._advertisement_data.rssi
         return None
 
-    async def update(self) -> bool:
-        """Update the lock's status."""
-        _LOGGER.debug("%s: Update", self.name)
-        status_proc = StatusProcedure(self)
-        return await self._execute(status_proc)
+    @property
+    def prop_min_max(self) -> dict[str, Any]:
+        return {
+            "brightness": {"min": 0, "max": 100},
+            "temperature": {"min": 1700, "max": 6500},
+            "color": {"min": 0, "max": 255},
+        }
 
-    async def turn_on(self) -> bool:
+    async def set_name(self, name):
+        cmd = SetNameCommand(self, name)
+        await self._execute(cmd)
+
+    async def get_state(self) -> YbtState:
+        """Update the Lamp status."""
+        _LOGGER.debug("%s: get_state", self.name)
+        cmd = GetStateCommand(self)
+        res = await self._execute(cmd)
+        print(f"get_state_res {res}")
+        return res
+
+    async def turn_on(self) -> YbtState:
         """Turn on the lamp."""
         _LOGGER.debug("%s: Turn on", self.name)
-        proc = PowerProcedure(self, cmds.Power.ON)
+        proc = SetPowerCommand(self, Power.ON)
         return await self._execute(proc)
 
-    async def turn_off(self) -> bool:
+    async def turn_off(self) -> YbtState:
         """Turn off the lamp."""
         _LOGGER.debug("%s: Turn off", self.name)
-        proc = PowerProcedure(self, cmds.Power.OFF)
+        proc = SetPowerCommand(self, Power.OFF)
         return await self._execute(proc)
 
-    async def set_brightness(self, brightness: int) -> bool:
+    async def set_brightness(self, brightness: int) -> None:
         """Set the brightness of the lamp [0-100]."""
         _LOGGER.debug("%s: Setting brightness to %d", self.name, brightness)
-        proc = BrightnessProcedure(self, brightness)
-        return await self._execute(proc)
+        # TODO: clamp value
+        proc = SetBrightnessCommand(self, int(brightness))
+        await self._execute(proc)
 
-    async def set_temperature(self, temp_kelvin: int, brightness: int) -> bool:
+    async def set_temperature(self, temp_kelvin: int, brightness: int) -> None:
         """Set temperature [1700 - 6500] and brightness [0-100]."""
         # _LOGGER.debug("%s: Setting brightness to %d", self.name, brightness)
-        proc = TempProcedure(self, temp_kelvin, brightness)
-        return await self._execute(proc)
+        # TODO: clamp values
+        proc = SetTempCommand(self, int(temp_kelvin), int(brightness))
+        await self._execute(proc)
 
-    async def set_color(self, red: int, green: int, blue: int, brightness: int) -> bool:
+    async def set_color(self, red: int, green: int, blue: int, brightness: int) -> None:
         """Set temperature [1700 - 6500] and brightness [0-100]."""
         # _LOGGER.debug("%s: Setting brightness to %d", self.name, brightness)
-        proc = ColorProcedure(self, red, green, blue, brightness)
-        return await self._execute(proc)
+        proc = SetColorCommand(self, int(red), int(green), int(blue), int(brightness))
+        await self._execute(proc)
 
-    async def associate(self) -> bool:
-        """Associate the lamp."""
-        _LOGGER.debug("%s: Associate", self.name)
-        proc = AssociationProcedure(self)
-        return await self._execute(proc)
+    async def authenticate(self) -> AuthRspStatus:
+        """Authenticate the lamp with notif.
+        Return Auth status"""
+        _LOGGER.debug("%s: authenticate", self.name)
+        proc = AuthCommand(self)
+        rsp_status = await self._execute(proc)
+        return self._auth_resp_to_auth_status(rsp_status)
 
-    async def get_serial(self) -> bool:
-        """Update the lamp serial."""
-        proc = SerialProcedure(self)
-        return await self._execute(proc)
+    async def authenticate_no_notif(self) -> callable[[],]:
+        """Authenticate the lamp.
+        If the lamp works with no notif, a callback is return.
+        The callback MUST be called once the lamp has been manually paired"""
+        _LOGGER.debug("%s: authenticate no notif", self.name)
+        # if notif are used, execute as usual
+        # if no notif, we are in pairing mode until the given callback is called
+        proc = AuthCommand(self)
+        self._auth_status = AuthStatus.PAIRING
+        await self._execute(proc)  # set in pairing more
+        await asyncio.sleep(0.1)
 
-    async def get_versions(self) -> bool:
+        # define callback to ensure pairing
+        def paired_cb():
+            self._auth_status = AuthStatus.PAIRED
+
+        return paired_cb
+
+    # async def get_serial(self) -> bool:
+    #     """Update the lamp serial."""
+    #     proc = GetVersionsCommand(self)
+    #     return await self._execute(proc)
+
+    async def get_versions(self) -> Versions:
         """Update the lamp versions."""
-        proc = VersionProcedure(self)
-        return await self._execute(proc)
+        proc = GetVersionsCommand(self)
+        res = await self._execute(proc)
+        return res
 
-    async def get_name(self) -> bool:
+    async def get_name(self) -> str:
         """Update the lamp name."""
-        proc = NameProcedure(self)
+        proc = GetNameCommand(self)
         return await self._execute(proc)
 
-    async def factory_reset(self) -> bool:
-        proc = FactoryResetProcedure(self)
-        return await self._execute(proc)
+    async def get_stats(self) -> None:
+        await self._execute(GetStatsCommand(self))
+
+    async def factory_reset(self) -> None:
+        proc = FactoryResetCommand(self)
+        await self._execute(proc)
 
     # def _disconnect(self, reason: DisconnectReason) -> None:
     #     """Disconnect from device."""
@@ -558,12 +701,8 @@ class YeelightBT:
     #         self._reset(reason)
     #     _LOGGER.debug("%s: Execute disconnect done", self.name)
 
-    async def send_cmd(self, command: Command) -> None:
+    async def send_cmd(self, data: bytes) -> None:
         """Send a command."""
-        char_specifier = PROP_WRITE_UUID
-        data = command.as_bytes
-        _LOGGER.debug("TX: %s", command)
-        _LOGGER.debug("TX: %s: %s", char_specifier, data.hex())
 
         self._raise_if_not_connected()
         assert self._client
@@ -586,16 +725,16 @@ class YeelightBT:
             if self._client and self._client.is_connected:
                 self._reset_disconnect_timer()
                 return
+            # no current connection
             _LOGGER.debug("%s: Connecting; RSSI: %s", self.name, self.rssi)
             client = await establish_connection(
-                BleakClientWithServiceCache,
-                self._ble_device,
-                self.name,
-                self._disconnected,
+                client_class=BleakClientWithServiceCache,
+                device=self._ble_device,
+                name=self.name,
+                disconnected_callback=self._disconnected,
                 use_services_cache=True,
                 ble_device_callback=lambda: self._ble_device,
             )
-            # await client.pair()
             _LOGGER.debug("%s: Connected; RSSI: %s", self.name, self.rssi)
             # services = client.services
             # for service in services:
@@ -615,31 +754,59 @@ class YeelightBT:
             _LOGGER.debug(
                 "%s: Subscribe to notifications; RSSI: %s", self.name, self.rssi
             )
-            await client.start_notify(PROP_NTFY_UUID, self._notification_handler)
+            await client.start_notify(PROP_NTFY_UUID, self._notif_handler)
 
-    async def _notification_handler(
+    async def _notif_handler(
         self, characteristic: BleakGATTCharacteristic, data: bytes
     ) -> None:
         """Notification handler."""
         self._reset_disconnect_timer()
-        _LOGGER.debug("RX: %02x: %s", characteristic.handle, data.hex())
         if len(data) < 2:
             _LOGGER.warning("Received invalid notif %s", data.hex())
             self._disconnect(DisconnectReason.INVALID_COMMAND)
             return
 
         try:
-            command = parse_command(data)
+            if len(data) != 18:
+                raise InvalidCommand("Invalid reponse length", data.hex())
+            if data[0] != 0x43:
+                raise InvalidCommand("Invalid reponse header", data.hex())
+            rsp_id = data[1]
         except InvalidCommand as err:
-            _LOGGER.warning("Received invalid command %s", err)
+            _LOGGER.warning("Received invalid response %s", err)
             self._disconnect(DisconnectReason.INVALID_COMMAND)
             return
-        _LOGGER.debug("RX: %s (%s)", command, command.cmd_id)
-        if command_handler := self._command_handlers.get(command.cmd_id):
-            command_handler(command)
-        if fut := self._command_handlers_oneshot.pop(command.cmd_id, None):
-            if fut and not fut.done():
-                fut.set_result(command)
+        # check if response is needed in any handlers:
+        rsps = list(self._reponse_handlers.keys()) + list(
+            self._reponse_handlers_once.keys()
+        )
+        rsp_id_map = {rsp.rsp_id: rsp for rsp in rsps}
+        if not (rsp_cls := rsp_id_map.get(rsp_id)):
+            # the rsp_id is not in any stored response
+            _LOGGER.warning(
+                f"RX: {data.hex()} | UNKNOWN notif | h{characteristic.handle:#04x}"
+            )
+            return
+        packets = self._response_counters.get(rsp_id, [])
+        packets.append(data)
+        if rsp_cls.rsp_packets > len(packets):
+            # we haven't received all packets for the response
+            self._response_counters[rsp_id] = packets
+            _LOGGER.debug(
+                f"RX: {data.hex()} | ({rsp_cls.__name__}) | h{characteristic.handle:#04x} -- incomplete response"
+            )
+            return
+
+        result = rsp_cls(self).extract(b"".join(packets))
+        self._response_counters[rsp_id] = []
+        _LOGGER.debug(
+            f"RX: {data.hex()} | ({rsp_cls.__name__}) | h{characteristic.handle:#04x} -- res: {result}"
+        )
+        if handler := self._reponse_handlers.get(rsp_cls):
+            handler(result)
+        if fut := self._reponse_handlers_once.pop(rsp_cls, False):
+            if not fut.done():
+                fut.set_result(result)
 
     def _raise_if_not_connected(self) -> None:
         """Raise if the connection to device is lost."""
@@ -669,8 +836,15 @@ class YeelightBT:
             self.name,
             self.rssi,
         )
+        # we continue the disconnect only if we were connected before
+        _LOGGER.debug(client)
+        _LOGGER.debug(self._client)
         self._client = None
+
         self._disconnect(DisconnectReason.UNEXPECTED)
+
+    async def disconnect(self) -> None:
+        await self._execute_disconnect(DisconnectReason.USER_REQUESTED)
 
     def _disconnect(self, reason: DisconnectReason) -> None:
         """Disconnect from device."""
@@ -713,33 +887,28 @@ class YeelightBT:
     def _reset(self, reason: DisconnectReason) -> None:
         """Reset."""
         _LOGGER.debug("%s: reset", self.name)
-        self._authenticated = False
-        self._associated = False
-        # self._command_handlers = {}
-        for fut in self._command_handlers_oneshot.values():
+        self._auth_status = AuthStatus.NOT_PAIRED
+        for fut in self._reponse_handlers_once.values():
             fut.cancel()
-        self._command_handlers_oneshot = {}
+        self._reponse_handlers_once = {}
+        self._response_counters = {}
         self._disconnect_reason = reason
         if self._disconnect_timer:
             self._disconnect_timer.cancel()
         self._disconnect_timer = None
-        self._notifications_enabled = False
 
+    def _add_response_handler(self, rsp_class: type[BaseResponse], handler: Callable):
+        self._reponse_handlers[rsp_class] = handler
 
-    def on_receive_notifs(
-        self, cmd: type[_CMD_T], callback: Callable[[_CMD_T], None]
-    ) -> None:
-        """Receive a response."""
-        self._command_handlers[cmd.cmd_id] = cast(Callable[[Command], None], callback)
-
-    def receive_notif_once(self, cmd: type[_CMD_T]) -> asyncio.Future[_CMD_T]:
+    def receive_notif_once(self, rsp_class: type[BaseResponse]) -> asyncio.Future:
         """Receive a response once."""
-        fut: asyncio.Future[_CMD_T] = asyncio.Future()
-        self._command_handlers_oneshot[cmd.cmd_id] = cast(asyncio.Future[Command], fut)
+        fut: asyncio.Future = asyncio.Future()
+        self._reponse_handlers_once[rsp_class] = fut
+
         return fut
 
     @retry_bluetooth_connection_error(DEFAULT_ATTEMPTS)  # type: ignore[misc]
-    async def _execute(self, procedure: BaseProcedure) -> bool:
+    async def _execute(self, procedure: BaseCommand) -> bool:
         """Execute a procedure."""
         if self._procedure_lock.locked():
             _LOGGER.debug(
@@ -750,12 +919,23 @@ class YeelightBT:
             )
         async with self._procedure_lock:
             try:
+                await self._ensure_connected()
                 if procedure.need_auth:
-                    await self._enusure_associated()
+                    await self._enusure_authenticated()
+                    if self._auth_status != AuthStatus.PAIRED:
+                        # still not paired, let's cancel this cmd that need auth
+                        _LOGGER.warning(
+                            f"{procedure.__class__} cancelled as auth needed while it is <{self._auth_status.name}: {self._auth_status}>"
+                        )
+                        return
+
+                if procedure.response and self._notif_enabled:
+                    rsp_fut = self.receive_notif_once(procedure.response)
+                    await procedure.execute()
+                    result = await rsp_fut
+                    return result
                 else:
-                    await self._ensure_connected()
-                result = await procedure.execute()
-                return result
+                    return await procedure.execute()
             except asyncio.CancelledError as err:
                 if self._disconnect_reason is None:
                     raise YBTError from err
@@ -766,15 +946,24 @@ class YeelightBT:
                 self._disconnect(DisconnectReason.ERROR)
                 raise
 
-    async def _enusure_associated(self) -> None:
+    async def _enusure_authenticated(self) -> None:
         """Ensure we have associated with the lamp"""
-        await self._ensure_connected()
-        if self._associated:
+        if self._auth_status == AuthStatus.PAIRED:
             return
-        proc = AssociationProcedure(self)
-        await proc.execute()
-        self._associated = True
-
+        # _ensure_authenticated is only called when other command that needs auth got called
+        # NOT when the main "association" method is run.
+        # so if notif not enabled, we send command and ASSUME we have authenticated
+        # if notif enabled, we await the first reponse, but _auth_status updated by auth handler
+        cmd = AuthCommand(self)
+        if self._notif_enabled:
+            rsp_fut = self.receive_notif_once(cmd.response)
+            await cmd.execute()
+            await rsp_fut
+        else:
+            self._auth_status = AuthStatus.PAIRING
+            await cmd.execute()
+            await asyncio.sleep(0.1)
+            self._auth_status = AuthStatus.PAIRED
 
     def register_state_callback(
         self, callback: Callable[[YbtState], None]

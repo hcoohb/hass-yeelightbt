@@ -88,16 +88,6 @@ class UnknownResponse(Response):
         return cls(data)
 
 
-class AssociationStatus(IntEnum):
-    """Status report type"""
-
-    REQUESTING_PAIR = 0x01
-    SUCCESSFULLY_PAIRED = 0x02
-    NOT_PAIRED = 0x03
-    ALREADY_PAIRED = 0x04
-    DISCONNECTING_NOW = 0x06 #factory reset required
-    DISCONNECTING_SOON_2 = 0x07
-
 
 class AssociationCmd(Command):
     """Association Command."""

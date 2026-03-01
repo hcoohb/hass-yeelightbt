@@ -1,5 +1,4 @@
 """Config flow for yeelight_bt"""
-
 from __future__ import annotations
 
 import logging
@@ -13,7 +12,6 @@ from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
     # async_get_scanner,
     async_scanner_devices_by_address,
-    async_ble_device_from_address,
     _get_manager,
 )
 from homeassistant.core import callback
@@ -35,7 +33,7 @@ from .const import (
 )
 
 from .yeelightbt.connection import Adapter, PairingStatus
-from .yeelightbt.yeelightbt import ybt_model_from_ble_name, YeelightBT, AuthStatus
+from .yeelightbt.yeelightbt import ybt_model_from_ble_name, YeelightBT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,7 +41,7 @@ _LOGGER = logging.getLogger(__name__)
 def ybt_name_from_info_service(info: BluetoothServiceInfoBleak) -> str:
     name = info.device.name or info.name
     model = ybt_model_from_ble_name(name)
-    # TODO: Can we try to read the name?
+    #TODO: Can we try to read the name?
     return f"{model}_{info.address.replace(':', '')[-4:]}"
 
 
@@ -52,16 +50,13 @@ class Yeelight_btConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore
 
     VERSION = 2
     # CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
-    task_auth_check: asyncio.Task | None = None
 
     def __init__(self):
         """Initialize the Config flow."""
-        _LOGGER.debug("In configFlow init")
         self.discovery_info: BluetoothServiceInfoBleak = None
         self.set_pairing = None
         self.wait_pairing = None
         self.ybt = None
-        self.name: str | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -97,11 +92,11 @@ class Yeelight_btConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore
         self._abort_if_unique_id_configured()
 
         self.discovery_info = discovery_info
-        self.name = ybt_name_from_info_service(discovery_info)
+        name = ybt_name_from_info_service(discovery_info)
         self.context.update(
             {
                 "title_placeholders": {
-                    CONF_NAME: self.name,
+                    CONF_NAME: name,
                     CONF_MAC: discovery_info.address,
                     "rssi": discovery_info.rssi,
                 }
@@ -114,7 +109,6 @@ class Yeelight_btConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore
         _LOGGER.debug("I am in the init step")
         if self.discovery_info is None:
             # mainly to shut up the type checker
-            _LOGGER.error("In init step with no discovery items")
             return self.async_abort(reason="not_supported")
         address = self.discovery_info.address
         self._async_abort_entries_match({CONF_MAC: address})
@@ -125,116 +119,90 @@ class Yeelight_btConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore
             )
             # TODO sort the adapter list by RSSI
             _LOGGER.debug(
-                f"The following adapters found the light:{[f'{ad.scanner.name} (connectable: {ad.scanner.connectable}, rssi: {ad.advertisement.rssi}dBm]' for ad in adapters]}"
+                f"The following adapters found the light:{[f'{ad.scanner.name} (source: {ad.scanner.source}, rssi: {ad.advertisement.rssi}dBm, connectable: {ad.scanner.connectable}]' for ad in adapters]}"
             )
             if not adapters:
                 # no adapters found the light
                 return self.async_abort(reason="no_longer_discovered")
-            # adapters_options = [
-            #     {
-            #         "label": f"{ad.scanner.name} ({ad.advertisement.rssi}dB)",
-            #         "value": ad.scanner.source,
-            #     }
-            #     for ad in adapters
-            # ]
+            adapters_options = [
+                {
+                    "label": f"{ad.scanner.name} ({ad.advertisement.rssi}dB)",
+                    "value": ad.scanner.source,
+                }
+                for ad in adapters
+            ]
             return self.async_show_form(
                 step_id="init",
-                # data_schema=vol.Schema(
-                #     {
-                #         vol.Required(CONF_NAME, default=name): str,  # type: ignore
-                #         vol.Required(
-                #             CONF_ADAPTER,
-                #             description={
-                #                 "suggested_value": adapters_options[0]["value"]
-                #             },
-                #         ): selector(
-                #             {
-                #                 "select": {
-                #                     "options": adapters_options,
-                #                     "custom_value": False,
-                #                 }
-                #             }
-                #         ),
-                #     }
-                # ),
-                data_schema=vol.Schema({}),
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(CONF_NAME, default=name): str,  # type: ignore
+                        vol.Required(
+                            CONF_ADAPTER,
+                            description={
+                                "suggested_value": adapters_options[0]["value"]
+                            },
+                        ): selector(
+                            {
+                                "select": {
+                                    "options": adapters_options,
+                                    "custom_value": False,
+                                }
+                            }
+                        ),
+                    }
+                ),
                 description_placeholders={
                     CONF_NAME: name,
                     CONF_MAC: address,
                 },
             )
         _LOGGER.debug(f"The data received from the form was {user_input}")
-        # self.data = {
-        #     CONF_NAME: user_input[CONF_NAME],
-        #     CONF_MAC: address,
-        #     # CONF_ADAPTER: user_input[CONF_ADAPTER],
-        # }
-
+        self.data = {
+            CONF_NAME: user_input[CONF_NAME],
+            CONF_MAC: address,
+            CONF_ADAPTER: user_input[CONF_ADAPTER],
+        }
         ble_name = self.discovery_info.device.name or self.discovery_info.name
         model = ybt_model_from_ble_name(ble_name)
-        ble_device = async_ble_device_from_address(
-            self.hass, address.upper(), connectable=True
+        self.ybt = YeelightBT(
+            address,
+            model,
+            user_input[CONF_NAME],
+            user_input[CONF_ADAPTER],
+            True,
+            True,
+            self.hass,
         )
-        self.ybt = YeelightBT(ble_device)
         # onto the pairing step:
         return await self.async_step_set_pairing()
 
     async def async_step_set_pairing(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """We connect and check lamp auth"""
+        """We connect and set the lamp for pairing"""
         _LOGGER.debug("In set pairing step")
-        if not self.task_auth_check:
-            task = self.ybt.authenticate()
-            # async def my_async():
-            #     _LOGGER.debug("My_async is started")
-            #     await asyncio.sleep(10)
-            #     _LOGGER.debug("My_async is finished")
-            # task = my_async()
-            _LOGGER.debug("creating auth check task")
-            self.task_auth_check = self.hass.async_create_task(task)
-        if not self.task_auth_check.done():
-            _LOGGER.debug("Check task not completed")
+        if not self.set_pairing:
+            task = self.ybt.set_pairing_mode()
+            _LOGGER.info("scheduling set pairing")
+            self.set_pairing = self.hass.async_create_task(self._async_do_task(task))
             return self.async_show_progress(
                 step_id="set_pairing",
                 progress_action="set_pairing",
-                progress_task=self.task_auth_check,
             )
-
         try:
-            result = await self.task_auth_check
-        except TimeoutError:
+            await self.set_pairing
+        except asyncio.TimeoutError:
+            self.set_pairing = None
             return self.async_show_progress_done(next_step_id="pairing_timeout")
-        finally:
-            await self.ybt.disconnect()
-            self.task_auth_check = None
-        _LOGGER.debug(f"Auth result: {result}. Paired={result == AuthStatus.PAIRED}")
-
-        # return self.async_show_progress_done(next_step_id="pairing_complete")
-
-        _LOGGER.debug("Check task completed.")
-        if result == AuthStatus.PAIRED:
+        _LOGGER.info("async_step_progress - set_pairing done")
+        self.set_pairing = None
+        if self.ybt.pairing_status == PairingStatus.PAIRING:
+            return self.async_show_progress_done(next_step_id="wait_pairing")
+        if self.ybt.pairing_status == PairingStatus.PAIRED:
             return self.async_show_progress_done(next_step_id="finish")
-        return self.async_show_progress_done(next_step_id="dummy")
-        # try:
-        #     await self.set_pairing
-        # except asyncio.TimeoutError:
-        #     self.set_pairing = None
-        #     return self.async_show_progress_done(next_step_id="pairing_timeout")
-        # _LOGGER.info("async_step_progress - set_pairing done")
-        # self.set_pairing = None
-        # if self.ybt.pairing_status == PairingStatus.PAIRING:
-        #     return self.async_show_progress_done(next_step_id="wait_pairing")
-        # if self.ybt.pairing_status == PairingStatus.PAIRED:
-        #     return self.async_show_progress_done(next_step_id="finish")
-        # _LOGGER.error("Could not set the lamp to pairing mode")
-        # return self.async_show_progress_done(next_step_id="pairing_needs_reset")
+        _LOGGER.error("Could not set the lamp to pairing mode")
+        return self.async_show_progress_done(next_step_id="pairing_needs_reset")
         # return self.async_abort(reason="request_pairing_failed")
-
-    async def async_step_dummy(self, user_input=None):
-        _LOGGER.debug("I am in the dummy step")
-        if user_input is None:
-            return self.async_show_form(step_id="dummy")
 
     async def async_step_pairing_needs_reset(
         self, user_input: dict[str, Any] | None = None
@@ -294,19 +262,20 @@ class Yeelight_btConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore
         if user_input is None:
             return self.async_show_form(step_id="finish")
         # Finally create the config_entry
-        return self.async_create_entry(title=self.name, data={})
-        # data={CONF_MAC:self.discovery_info.address},
-        # )
+        await self.ybt.async_disconnect()
+        return self.async_create_entry(
+            title=self.data[CONF_NAME],
+            data=self.data,
+        )
 
     @callback
     def async_remove(self):
         """Clean up resources or tasks associated with the flow."""
-        _LOGGER.debug("In async_remove")
-        # if self.set_pairing:
-        #     self.set_pairing.cancel()
+        if self.set_pairing:
+            self.set_pairing.cancel()
 
         if self.ybt:
-            # await self.ybt.disconnect()
+            self.ybt.shutdown()
             self.ybt = None
 
     @staticmethod
@@ -330,16 +299,14 @@ class OptionsFlowHandler(OptionsFlow):
         _LOGGER.debug(f"OptionsFlowHandler_user_input: {user_input}")
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
-
+            
         mac = self.config_entry.data["mac"]
         _LOGGER.debug(f"OptionsFlowHandler_config_entry: {mac}")
         adapters = async_scanner_devices_by_address(
             self.hass, address=mac, connectable=True
         )
         scanners = [ad.scanner for ad in adapters]
-        _LOGGER.debug(
-            f"The following adapters found the light:{ {scan.name:scan.source for scan in scanners}}"
-        )
+        _LOGGER.debug(f"The following adapters found the light:{ {scan.name:scan.source for scan in scanners}}")
         # # adapt3 = _get_manager(self.hass).async_scanner_devices_by_address(
         # #     mac, connectable=False
         # # )
@@ -351,6 +318,7 @@ class OptionsFlowHandler(OptionsFlow):
         #     devs += scanner.discovered_devices_and_advertisement_data
         # _LOGGER.debug(f"The adapters had the devices:{devs}")
 
+
         adapters_options = [
             {"label": "Automatic", "value": Adapter.AUTO},
             {
@@ -358,9 +326,7 @@ class OptionsFlowHandler(OptionsFlow):
                 "value": Adapter.LOCAL,
             },
         ]
-        adapters_options += [
-            {"label": scan.name, "value": scan.source} for scan in scanners
-        ]
+        adapters_options += [{"label": scan.name, "value": scan.source} for scan in scanners]
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(

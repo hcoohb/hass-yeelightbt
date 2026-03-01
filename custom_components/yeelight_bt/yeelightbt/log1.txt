@@ -1,0 +1,26 @@
+2025-01-28 11:23:35.127 DEBUG (MainThread) [custom_components.yeelight_bt.config_flow] I am in the init step
+2025-01-28 11:23:35.127 DEBUG (MainThread) [custom_components.yeelight_bt.config_flow] The following adapters found the light:['esp-c3-1 (64:E8:33:B9:A9:E4) (connectable: True, rssi: -78dBm]']
+2025-01-28 11:23:37.007 DEBUG (MainThread) [custom_components.yeelight_bt.config_flow] I am in the init step
+2025-01-28 11:23:37.008 DEBUG (MainThread) [custom_components.yeelight_bt.config_flow] The data received from the form was {}
+2025-01-28 11:23:37.008 DEBUG (MainThread) [custom_components.yeelight_bt.config_flow] In set pairing step
+2025-01-28 11:23:37.008 DEBUG (MainThread) [custom_components.yeelight_bt.config_flow] creating auth check task
+2025-01-28 11:23:37.008 DEBUG (MainThread) [custom_components.yeelight_bt.yeelightbt.yeelightbt] XMCTD_: authenticate
+2025-01-28 11:23:37.008 DEBUG (MainThread) [custom_components.yeelight_bt.yeelightbt.yeelightbt] XMCTD_: Connecting; RSSI: None
+2025-01-28 11:23:37.010 DEBUG (MainThread) [custom_components.yeelight_bt.config_flow] Check task not completed
+2025-01-28 11:23:39.686 DEBUG (MainThread) [custom_components.yeelight_bt.yeelightbt.yeelightbt] XMCTD_: Connected; RSSI: None
+2025-01-28 11:23:39.686 DEBUG (MainThread) [custom_components.yeelight_bt.yeelightbt.yeelightbt] XMCTD_: Subscribe to notifications; RSSI: None
+2025-01-28 11:23:39.710 DEBUG (MainThread) [custom_components.yeelight_bt.yeelightbt.yeelightbt] TX: 436702000000000000000000000000000000 | (AuthCommand)
+2025-01-28 11:23:40.094 DEBUG (MainThread) [custom_components.yeelight_bt.yeelightbt.yeelightbt] RX: 436304000000000000000000000000000000 | (AuthResponse) | h0x15 -- res: 4
+2025-01-28 11:23:40.094 DEBUG (MainThread) [custom_components.yeelight_bt.yeelightbt.yeelightbt] Auth_rsp_handler with: <ALREADY_PAIRED: 4>
+2025-01-28 11:23:40.094 DEBUG (MainThread) [custom_components.yeelight_bt.config_flow] In set pairing step
+2025-01-28 11:23:40.095 DEBUG (MainThread) [custom_components.yeelight_bt.yeelightbt.yeelightbt] XMCTD_: Execute disconnect
+2025-01-28 11:23:40.135 DEBUG (MainThread) [custom_components.yeelight_bt.yeelightbt.yeelightbt] XMCTD_: Disconnected from device; RSSI: None
+2025-01-28 11:23:40.136 DEBUG (MainThread) [custom_components.yeelight_bt.yeelightbt.yeelightbt] XMCTD_: reset
+2025-01-28 11:23:40.136 DEBUG (MainThread) [custom_components.yeelight_bt.yeelightbt.yeelightbt] XMCTD_: Execute disconnect done
+2025-01-28 11:23:40.137 DEBUG (MainThread) [custom_components.yeelight_bt.config_flow] Auth result: 3. Paired=True
+2025-01-28 11:23:40.137 DEBUG (MainThread) [custom_components.yeelight_bt.config_flow] Check task completed.
+2025-01-28 11:23:40.236 DEBUG (MainThread) [custom_components.yeelight_bt.config_flow] In finish step
+2025-01-28 11:23:52.284 DEBUG (MainThread) [custom_components.yeelight_bt.config_flow] In finish step
+2025-01-28 11:23:52.290 DEBUG (MainThread) [custom_components.yeelight_bt] integration async setup entry: {'created_at': '2025-01-28T01:23:52.284649+00:00', 'data': {'mac': 'F8:24:41:E6:3E:39'}, 'discovery_keys': {'bluetooth': (DiscoveryKey(domain='bluetooth', key='F8:24:41:E6:3E:39', version=1),)}, 'disabled_by': None, 'domain': 'yeelight_bt', 'entry_id': '01JJN83YAWF15F214Y1B80FAQF', 'minor_version': 1, 'modified_at': '2025-01-28T01:23:52.284654+00:00', 'options': {}, 'pref_disable_new_entities': False, 'pref_disable_polling': False, 'source': 'bluetooth', 'title': 'Bedside_3E39', 'unique_id': 'f8:24:41:e6:3e:39', 'version': 2}
+2025-01-28 11:23:52.291 DEBUG (MainThread) [custom_components.yeelight_bt] MAC of entry: F8:24:41:E6:3E:39
+2025-01-28 11:23:52.291 ERROR (MainThread) [homeassistant.config_entries] Error setting up entry Bedside_3E39 for yeelight_bt

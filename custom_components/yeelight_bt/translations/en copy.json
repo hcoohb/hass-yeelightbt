@@ -11,26 +11,30 @@
         }
       },
       "init": {
-        "title": "Setting up lamp",
-        "description": "The next step will check and commence pairing if required."
+        // "title": "Fill in your Lamp information",
+        // "description": "Device: {name} [{mac}]",
+        "data": {
+          "name": "The Lamp name",
+          "conf_adapter": "The bluetooth adapter to use:"
+        },
+        "data_description":{
+          "conf_adapter": "This list all bluetooth adapters that have discovered the lamp. The next step will pair this adapter to the lamp."
+        }
       },
-      "set_pairing": {
+      "set_pairing":{
         "title": "Pairing step"
       },
-      "dummy":{
-        "title": "dummy_title",
-        "description": "The dummy desc"
-      },
-      "wait_pairing": {
+      "wait_pairing":{
         "title": "Pairing step"
       },
-      "finish": {
+      "finish":{
         "title": "Finishing step",
-        "description": "All done. The lamp can be paired to a different adapter in the configuration dialog."
+        "description":"All done. The lamp can be paired to a different adapter in the configuration dialog."
       }
+      
     },
     "progress": {
-      "set_pairing": "Checking pairing with the lamp.",
+      "set_pairing": "Requesting pairing with the lamp.",
       "wait_pairing": "Push the button of the lamp"
     },
     "error": {
