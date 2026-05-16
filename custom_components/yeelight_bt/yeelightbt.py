@@ -99,6 +99,7 @@ class Lamp:
         self._pair_resp_event = asyncio.Event()
         self._read_service = False
         self._is_client_bluez = True
+        self._operation_lock = asyncio.Lock()
 
     def __str__(self) -> str:
         """The string representation"""
@@ -190,27 +191,37 @@ class Lamp:
                 await asyncio.sleep(0.3)
                 if self._conn == Conn.PAIRED:
                     # ensure we get state straight away after connection
-                    await self.get_state()
+                    await self._write_cmd(
+                        struct.pack("BBB15x", COMMAND_STX, CMD_GETSTATE, CMD_GETSTATE_SEC)
+                    )
                     if not self.versions:
-                        await self.get_version()
-                        await self.get_serial()
+                        await self._write_cmd(struct.pack("BB16x", COMMAND_STX, CMD_GETVER))
+                        await self._write_cmd(struct.pack("BB16x", COMMAND_STX, CMD_GETSERIAL))
 
-            if self._model == MODEL_CANDELA and self._is_client_bluez:
-                # It may be that on bluez the notification request is not sent properly
-                # Not sure on esp... so only applyt to bluez
+            if self._model == MODEL_CANDELA:
+                if not self._is_client_bluez:
+                    try:
+                        _LOGGER.debug("Request Notify")
+                        await self._client.start_notify(
+                            NOTIFY_UUID, self.notification_handler
+                        )
+                        await asyncio.sleep(0.3)
+                    except BleakError as err:
+                        _LOGGER.debug(f"Notify setup failed for Candela: {err}")
+
                 _LOGGER.debug("Request Pairing")
                 await self.pair()
-                # since we have no feedback
-                # we wait longer on first connection in case need to push button...
+                # Candela often does not send a reliable pairing response through all
+                # backends, so continue optimistically after a short grace period.
                 await asyncio.sleep(0.3 if self.versions else 10)
-                # now we are assuming that we paired successfully
                 self._conn = Conn.PAIRED
-                # ensure we get state straight away after connection
-                await self.get_state()
+                if not await self._write_cmd(
+                    struct.pack("BBB15x", COMMAND_STX, CMD_GETSTATE, CMD_GETSTATE_SEC)
+                ):
+                    self._conn = Conn.UNPAIRED
                 if not self.versions:
-                    await self.get_version()
-                    await self.get_serial()
-                # advertise to HA lamp is now available:
+                    await self._write_cmd(struct.pack("BB16x", COMMAND_STX, CMD_GETVER))
+                    await self._write_cmd(struct.pack("BB16x", COMMAND_STX, CMD_GETSERIAL))
                 self.run_state_changed_cb()
 
             _LOGGER.debug(f"Connection status: {self._conn}")
@@ -227,13 +238,12 @@ class Lamp:
             _LOGGER.error("Pairing: Cannot request pair as not connected")
             return
         try:
-            if self._model == MODEL_CANDELA and self._is_client_bluez:
+            if self._model == MODEL_CANDELA:
                 await self._client.write_gatt_char(CONTROL_UUID, bits)
                 return
             self._pair_resp_event.clear()
             await self._client.write_gatt_char(CONTROL_UUID, bits)
-            # wait after pairing to receive notif of pair result:
-            await self._pair_resp_event.wait()
+            await asyncio.wait_for(self._pair_resp_event.wait(), timeout=10)
         except asyncio.TimeoutError:
             _LOGGER.error("Pairing: Timeout error")
         except BleakError as err:
@@ -289,18 +299,25 @@ class Lamp:
             "color": {"min": 0, "max": 255},
         }
 
-    async def send_cmd(self, bits: bytes, wait_notif: float = 0.5) -> bool:
-        await self.connect()
-        if self._conn == Conn.PAIRED and self._client is not None:
-            try:
-                await self._client.write_gatt_char(CONTROL_UUID, bytearray(bits))
-                await asyncio.sleep(wait_notif)
-                return True
-            except asyncio.TimeoutError:
-                _LOGGER.error("Send Cmd: Timeout error")
-            except BleakError as err:
-                _LOGGER.error(f"Send Cmd: BleakError: {err}")
+    async def _write_cmd(self, bits: bytes, wait_notif: float = 0.5) -> bool:
+        if self._client is None:
+            return False
+        try:
+            await self._client.write_gatt_char(CONTROL_UUID, bytearray(bits))
+            await asyncio.sleep(wait_notif)
+            return True
+        except asyncio.TimeoutError:
+            _LOGGER.error("Send Cmd: Timeout error")
+        except BleakError as err:
+            _LOGGER.error(f"Send Cmd: BleakError: {err}")
         return False
+
+    async def send_cmd(self, bits: bytes, wait_notif: float = 0.5) -> bool:
+        async with self._operation_lock:
+            await self.connect()
+            if self._conn == Conn.PAIRED and self._client is not None:
+                return await self._write_cmd(bits, wait_notif)
+            return False
 
     async def get_state(self) -> None:
         """Request the state of the lamp (send back state through notif)"""
