@@ -311,11 +311,20 @@ class Lamp:
             _LOGGER.error(f"Send Cmd: BleakError: {err}")
         return False
 
-    async def send_cmd(self, bits: bytes, wait_notif: float = 0.5) -> bool:
+    async def send_cmd(self, bits: bytes, wait_notif: float = 0.5, retries: int = 1) -> bool:
         async with self._operation_lock:
-            await self.connect()
-            if self._conn == Conn.PAIRED and self._client is not None:
-                return await self._write_cmd(bits, wait_notif)
+            for attempt in range(retries + 1):
+                await self.connect()
+                if self._conn == Conn.PAIRED and self._client is not None:
+                    if await self._write_cmd(bits, wait_notif):
+                        return True
+                if attempt < retries:
+                    _LOGGER.warning(
+                        f"send_cmd attempt {attempt + 1} failed, "
+                        f"reconnecting and retrying"
+                    )
+                    await self.disconnect()
+                    await asyncio.sleep(0.5)
             return False
 
     async def get_state(self) -> None:
