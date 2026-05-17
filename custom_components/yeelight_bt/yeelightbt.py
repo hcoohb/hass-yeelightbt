@@ -212,7 +212,13 @@ class Lamp:
                 await self.pair()
                 # Candela often does not send a reliable pairing response through all
                 # backends, so continue optimistically after a short grace period.
-                await asyncio.sleep(0.3 if self.versions else 10)
+                # Over BT proxy the GetVer notification rarely comes back, so
+                # `self.versions` stays None and the long 10s wait was paid on
+                # every reconnect, blocking the operation_lock and freezing the
+                # entity. 1s is enough for an already-paired lamp; a first-time
+                # pairing requiring the lamp button press will simply fail the
+                # first write and retry via send_cmd.
+                await asyncio.sleep(0.3 if self.versions else 1.0)
                 self._conn = Conn.PAIRED
                 if not await self._write_cmd(
                     struct.pack("BBB15x", COMMAND_STX, CMD_GETSTATE, CMD_GETSTATE_SEC)
