@@ -42,11 +42,6 @@ RES_GETVER = 0x5D
 CMD_GETSERIAL = 0x5E
 RES_GETSERIAL = 0x5F
 RES_GETTIME = 0x62
-CMD_FLOW = 0x4A
-CMD_FLOW_START = 0x01
-CMD_FLOW_STOP = 0x03
-RES_FLOW = 0x4A
-
 MODEL_BEDSIDE = "Bedside"
 MODEL_CANDELA = "Candela"
 MODEL_UNKNOWN = "Unknown"
@@ -383,19 +378,6 @@ class Lamp:
             self._brightness = brightness
             self._mode = self.MODE_COLOR
 
-    async def set_flow(self, enable: bool, preset_id: int = 1) -> None:
-        """Start or stop a flow preset on the lamp (Candela candle effect)."""
-        cmd = CMD_FLOW_START if enable else CMD_FLOW_STOP
-        bits = struct.pack(
-            ">BBBBBB6sHH2x",
-            COMMAND_STX, CMD_FLOW,
-            preset_id, 0, cmd, 0,
-            b'\x00' * 6, 0, 0,
-        )
-        _LOGGER.debug(f"Set Flow {'start' if enable else 'stop'} preset {preset_id}")
-        if await self.send_cmd(bits, wait_notif=0):
-            self._mode = self.MODE_FLOW if enable else self.MODE_WHITE
-
     async def get_name(self) -> None:
         """Get the name from the lamp (through notif)"""
         bits = struct.pack("BB16x", COMMAND_STX, CMD_GETNAME)
@@ -472,9 +454,6 @@ class Lamp:
                 )
                 self._conn = Conn.UNPAIRED
                 self._pair_resp_event.set()
-
-        if res_type == RES_FLOW:
-            _LOGGER.debug(f"Flow mode ack from {self._mac}")
 
         if res_type == RES_GETVER:
             self.versions = cast(str, struct.unpack("xxBHHHH6x", data))

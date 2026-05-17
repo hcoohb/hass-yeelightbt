@@ -9,7 +9,6 @@ import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
-    ATTR_EFFECT,
     ATTR_COLOR_TEMP_KELVIN,
     ATTR_HS_COLOR,
     ENTITY_ID_FORMAT,
@@ -83,7 +82,7 @@ class YeelightBT(LightEntity):
 
         _LOGGER.info(f"Initializing YeelightBT Entity: {self.name}, {self._mac}")
         self._dev = Lamp(ble_device)
-        self._effect_list = ["candle", "none"] if self._dev.model == MODEL_CANDELA else LIGHT_EFFECT_LIST
+        self._effect_list = LIGHT_EFFECT_LIST
         self._dev.add_callback_on_state_changed(self._status_cb)
         self._prop_min_max = self._dev.get_prop_min_max()
         self._attr_min_color_temp_kelvin = self._prop_min_max["temperature"]["min"]
@@ -221,14 +220,10 @@ class YeelightBT(LightEntity):
 
         self._brightness = int(round(255.0 * self._dev.brightness / 100))
         self._is_on = self._dev.is_on
-        if self._dev.mode == self._dev.MODE_FLOW:
-            self._effect = "candle"
-        else:
-            self._effect = "none"
         if self._dev.mode == self._dev.MODE_WHITE:
             self._attr_color_temp_kelvin = int(self.scale_temp_reversed(self._dev.temperature))
             self._rgb = (0, 0, 0)
-        elif self._dev.mode != self._dev.MODE_FLOW:
+        else:
             self._ct = 0
             self._rgb = self._dev.color
         self.async_write_ha_state()
@@ -300,23 +295,8 @@ class YeelightBT(LightEntity):
             self._brightness = int(round(float(brightness_dev) * 2.55))
             await asyncio.sleep(0.7)  # give time to transition before HA request update
 
-        if ATTR_EFFECT in kwargs:
-            effect = kwargs[ATTR_EFFECT]
-            if effect == "candle" and self._dev.model == MODEL_CANDELA:
-                _LOGGER.debug("Activating candle effect")
-                await self._dev.set_flow(True)
-                self._effect = "candle"
-            elif effect == "none":
-                _LOGGER.debug("Deactivating candle effect")
-                await self._dev.set_flow(False)
-                self._effect = "none"
-
     async def async_turn_off(self, **kwargs: int) -> None:
         """Turn the light off."""
-
-        if self._effect == "candle":
-            await self._dev.set_flow(False)
-            self._effect = "none"
         await self._dev.turn_off()
         self._is_on = False
 
