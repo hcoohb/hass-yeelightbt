@@ -21,6 +21,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_MAC, CONF_NAME, EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import generate_entity_id
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util.color import color_hs_to_RGB, color_RGB_to_hs
 from homeassistant.util.color import (
@@ -65,7 +66,7 @@ async def async_setup_entry(
     async_add_entities([entity])
 
 
-class YeelightBT(LightEntity):
+class YeelightBT(LightEntity, RestoreEntity):
     """Representation of a light."""
 
     def __init__(self, name: str, ble_device: BLEDevice) -> None:
@@ -95,6 +96,17 @@ class YeelightBT(LightEntity):
                 EVENT_HOMEASSISTANT_STOP, self.async_will_remove_from_hass
             )
         )
+        if self._dev.model == MODEL_CANDELA:
+            last_state = await self.async_get_last_state()
+            if last_state is not None:
+                self._is_on = last_state.state == "on"
+                brightness = last_state.attributes.get("brightness")
+                if isinstance(brightness, int):
+                    self._brightness = brightness
+                elif self._is_on and self._brightness <= 0:
+                    self._brightness = 255
+                self.async_write_ha_state()
+            return
         # schedule immediate refresh of lamp state:
         self.async_schedule_update_ha_state(force_refresh=True)
 
@@ -132,12 +144,16 @@ class YeelightBT(LightEntity):
 
     @property
     def available(self) -> bool:
+        if self._dev.model == MODEL_CANDELA:
+            return True
         return self._available
 
     @property
     def should_poll(self) -> bool:
-        """Polling needed for a updating status."""
-        return True
+        """Polling needed for updating status."""
+        # Candela state notifications/status reads are stale over the BT proxy and
+        # immediately revert a successful turn_on to off. Keep it optimistic.
+        return self._dev.model != MODEL_CANDELA
 
     @property
     def name(self) -> str:
@@ -218,6 +234,12 @@ class YeelightBT(LightEntity):
             self.async_write_ha_state()
             return
 
+        # Candela over ESPHome BT proxy emits/reads stale off states right after
+        # a successful command. Do not let those callbacks undo optimistic HA state.
+        if self._dev.model == MODEL_CANDELA and self._is_on and not self._dev.is_on:
+            _LOGGER.debug("Candela stale off callback ignored")
+            return
+
         self._brightness = int(round(255.0 * self._dev.brightness / 100))
         self._is_on = self._dev.is_on
         if self._dev.mode == self._dev.MODE_WHITE:
@@ -231,6 +253,9 @@ class YeelightBT(LightEntity):
     async def async_update(self) -> None:
         # Note, update should only start fetching,
         # followed by asynchronous updates through notifications.
+        if self._dev.model == MODEL_CANDELA:
+            _LOGGER.debug("Candela async_update skipped: optimistic BT-proxy mode")
+            return
         try:
             _LOGGER.debug("Requesting an update of the lamp status")
             await self._dev.get_state()
@@ -262,6 +287,9 @@ class YeelightBT(LightEntity):
             ):
                 await asyncio.sleep(0.5)  # wait for the lamp to turn on
         self._is_on = True
+        if self._dev.model == MODEL_CANDELA and self._brightness <= 0:
+            self._brightness = 255
+        self.async_write_ha_state()
 
         if ATTR_HS_COLOR in kwargs and ColorMode.HS in self.supported_color_modes:
             rgb: tuple[int, int, int] = color_hs_to_RGB(*kwargs.get(ATTR_HS_COLOR))
@@ -271,7 +299,9 @@ class YeelightBT(LightEntity):
             )
             await self._dev.set_color(*rgb, brightness=brightness_dev)
             # assuming new state before lamp update comes through:
+            self._is_on = True
             self._brightness = brightness_dev
+            self.async_write_ha_state()
             await asyncio.sleep(0.7)  # give time to transition before HA request update
             return
 
@@ -292,13 +322,17 @@ class YeelightBT(LightEntity):
             _LOGGER.debug(f"Trying to set brightness: {brightness_dev}")
             await self._dev.set_brightness(brightness_dev)
             # assuming new state before lamp update comes through:
+            self._is_on = True
             self._brightness = int(round(float(brightness_dev) * 2.55))
+            self.async_write_ha_state()
             await asyncio.sleep(0.7)  # give time to transition before HA request update
 
     async def async_turn_off(self, **kwargs: int) -> None:
         """Turn the light off."""
         await self._dev.turn_off()
         self._is_on = False
+        self._brightness = 0
+        self.async_write_ha_state()
 
     def scale_temp(self, temp: int) -> int:
         """Scale the temperature so that the white in HA UI correspond to the

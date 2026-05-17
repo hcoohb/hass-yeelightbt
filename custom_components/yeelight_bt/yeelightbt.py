@@ -20,6 +20,7 @@ from bleak_retry_connector import establish_connection
 
 NOTIFY_UUID = "8f65073d-9f57-4aaa-afea-397d19d5bbeb"
 CONTROL_UUID = "aa7d3f34-2d4f-41e0-807f-52fbf8cf7443"
+STATUS_UUID = "00010203-0405-0607-0809-0a0b0c0d1911"
 
 COMMAND_STX = 0x43
 CMD_PAIR = 0x67
@@ -227,6 +228,7 @@ class Lamp:
                 if not self.versions:
                     await self._write_cmd(struct.pack("BB16x", COMMAND_STX, CMD_GETVER))
                     await self._write_cmd(struct.pack("BB16x", COMMAND_STX, CMD_GETSERIAL))
+                await self._refresh_candela_status_from_status_char()
                 self.run_state_changed_cb()
 
             _LOGGER.debug(f"Connection status: {self._conn}")
@@ -297,6 +299,38 @@ class Lamp:
     def color(self) -> tuple[int, int, int]:
         return self._rgb
 
+    async def _refresh_candela_status_from_status_char(self) -> bool:
+        """Refresh Candela state through its readable status characteristic.
+
+        ESPHome Bluetooth proxy does not deliver Candela notifications reliably,
+        so Get_state may succeed while HA never receives RES_GETSTATE.  The
+        Candela exposes a readable status characteristic; byte 0 is the power
+        flag used by passive BLE readers, byte 1 commonly tracks brightness.
+        """
+        if self._model != MODEL_CANDELA or self._client is None:
+            return False
+        try:
+            raw = bytes(await self._client.read_gatt_char(STATUS_UUID))
+            _LOGGER.debug(
+                "Candela status char raw=%s", raw.hex() if raw else "empty"
+            )
+            if not raw:
+                return False
+            self._is_on = raw[0] != 0
+            if len(raw) > 1 and 0 <= raw[1] <= 100:
+                self._brightness = raw[1]
+            if self._is_on and self._brightness <= 0:
+                self._brightness = 100
+            self._mode = self.MODE_WHITE
+            return True
+        except Exception as err:
+            _LOGGER.warning(
+                "Candela status char refresh failed: %s: %s",
+                type(err).__name__,
+                err,
+            )
+            return False
+
     def get_prop_min_max(self) -> dict[str, Any]:
         return {
             "brightness": {"min": 0, "max": 100},
@@ -334,7 +368,16 @@ class Lamp:
             return False
 
     async def get_state(self) -> None:
-        """Request the state of the lamp (send back state through notif)"""
+        """Request the state of the lamp."""
+        if self._model == MODEL_CANDELA:
+            _LOGGER.debug("Candela get_state: using status characteristic, not CMD_GETSTATE")
+            async with self._operation_lock:
+                await self.connect()
+                refreshed = await self._refresh_candela_status_from_status_char()
+            if refreshed:
+                self.run_state_changed_cb()
+            return
+
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_GETSTATE, CMD_GETSTATE_SEC)
         _LOGGER.debug("Send Cmd: Get_state")
         await self.send_cmd(bits)
@@ -343,13 +386,22 @@ class Lamp:
         """Turn the lamp on. (send back state through notif)"""
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_POWER, CMD_POWER_ON)
         _LOGGER.debug("Send Cmd: Turn On")
-        await self.send_cmd(bits)
+        await self.send_cmd(bits, wait_notif=0 if self._model == MODEL_CANDELA else 0.5)
+        if self._model == MODEL_CANDELA:
+            self._is_on = True
+            if self._brightness <= 0:
+                self._brightness = 100
+            self.run_state_changed_cb()
 
     async def turn_off(self) -> None:
         """Turn the lamp off. (send back state through notif)"""
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_POWER, CMD_POWER_OFF)
         _LOGGER.debug("Send Cmd: Turn Off")
-        await self.send_cmd(bits)
+        await self.send_cmd(bits, wait_notif=0 if self._model == MODEL_CANDELA else 0.5)
+        if self._model == MODEL_CANDELA:
+            self._is_on = False
+            self._brightness = 0
+            self.run_state_changed_cb()
 
     # set_brightness/temperature/color do NOT send a notification back.
     # However, the lamp takes time to transition to new state
@@ -419,6 +471,8 @@ class Lamp:
         :args: - data : the received data from the lamp in hex format
         """
         _LOGGER.debug(f"Received 0x{data.hex()} from handle={cHandle}")
+        if self._model == MODEL_CANDELA:
+            _LOGGER.debug("Candela notification handle=%s raw=%s", cHandle, data.hex())
 
         res_type = struct.unpack("xB16x", data)[0]  # the type of response we got
         if res_type == RES_GETSTATE:  # state result
