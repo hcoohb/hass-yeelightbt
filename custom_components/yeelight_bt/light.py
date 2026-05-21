@@ -209,7 +209,7 @@ class YeelightBT(LightEntity, RestoreEntity):
         if self._dev.model == MODEL_CANDELA:
             return {ColorMode.BRIGHTNESS}
         return {ColorMode.COLOR_TEMP, ColorMode.HS}
-    
+
     @property
     def supported_features(self) -> int:
         """Return the supported features using LightEntityFeature."""
@@ -217,7 +217,7 @@ class YeelightBT(LightEntity, RestoreEntity):
         if any(e != "none" for e in self._effect_list):
             features |= LightEntityFeature.EFFECT
         return features
-        
+
     @property
     def color_mode(self) -> str:
         """Return the current color mode of the light."""
@@ -225,7 +225,7 @@ class YeelightBT(LightEntity, RestoreEntity):
             return ColorMode.BRIGHTNESS
         if self._ct > 0:
             return ColorMode.COLOR_TEMP
-        return ColorMode.HS        
+        return ColorMode.HS
 
     def _status_cb(self) -> None:
         _LOGGER.debug("Got state notification from the lamp")
