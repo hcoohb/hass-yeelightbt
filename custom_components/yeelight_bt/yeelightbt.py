@@ -20,6 +20,7 @@ from bleak_retry_connector import establish_connection
 
 NOTIFY_UUID = "8f65073d-9f57-4aaa-afea-397d19d5bbeb"
 CONTROL_UUID = "aa7d3f34-2d4f-41e0-807f-52fbf8cf7443"
+STATUS_UUID = "00010203-0405-0607-0809-0a0b0c0d1911"
 
 COMMAND_STX = 0x43
 CMD_PAIR = 0x67
@@ -42,7 +43,6 @@ RES_GETVER = 0x5D
 CMD_GETSERIAL = 0x5E
 RES_GETSERIAL = 0x5F
 RES_GETTIME = 0x62
-
 MODEL_BEDSIDE = "Bedside"
 MODEL_CANDELA = "Candela"
 MODEL_UNKNOWN = "Unknown"
@@ -99,6 +99,7 @@ class Lamp:
         self._pair_resp_event = asyncio.Event()
         self._read_service = False
         self._is_client_bluez = True
+        self._operation_lock = asyncio.Lock()
 
     def __str__(self) -> str:
         """The string representation"""
@@ -190,27 +191,44 @@ class Lamp:
                 await asyncio.sleep(0.3)
                 if self._conn == Conn.PAIRED:
                     # ensure we get state straight away after connection
-                    await self.get_state()
+                    await self._write_cmd(
+                        struct.pack("BBB15x", COMMAND_STX, CMD_GETSTATE, CMD_GETSTATE_SEC)
+                    )
                     if not self.versions:
-                        await self.get_version()
-                        await self.get_serial()
+                        await self._write_cmd(struct.pack("BB16x", COMMAND_STX, CMD_GETVER))
+                        await self._write_cmd(struct.pack("BB16x", COMMAND_STX, CMD_GETSERIAL))
 
-            if self._model == MODEL_CANDELA and self._is_client_bluez:
-                # It may be that on bluez the notification request is not sent properly
-                # Not sure on esp... so only applyt to bluez
+            if self._model == MODEL_CANDELA:
+                if not self._is_client_bluez:
+                    try:
+                        _LOGGER.debug("Request Notify")
+                        await self._client.start_notify(
+                            NOTIFY_UUID, self.notification_handler
+                        )
+                        await asyncio.sleep(0.3)
+                    except BleakError as err:
+                        _LOGGER.debug(f"Notify setup failed for Candela: {err}")
+
                 _LOGGER.debug("Request Pairing")
                 await self.pair()
-                # since we have no feedback
-                # we wait longer on first connection in case need to push button...
-                await asyncio.sleep(0.3 if self.versions else 10)
-                # now we are assuming that we paired successfully
+                # Candela often does not send a reliable pairing response through all
+                # backends, so continue optimistically after a short grace period.
+                # Over BT proxy the GetVer notification rarely comes back, so
+                # `self.versions` stays None and the long 10s wait was paid on
+                # every reconnect, blocking the operation_lock and freezing the
+                # entity. 1s is enough for an already-paired lamp; a first-time
+                # pairing requiring the lamp button press will simply fail the
+                # first write and retry via send_cmd.
+                await asyncio.sleep(0.3 if self.versions else 1.0)
                 self._conn = Conn.PAIRED
-                # ensure we get state straight away after connection
-                await self.get_state()
+                if not await self._write_cmd(
+                    struct.pack("BBB15x", COMMAND_STX, CMD_GETSTATE, CMD_GETSTATE_SEC)
+                ):
+                    self._conn = Conn.UNPAIRED
                 if not self.versions:
-                    await self.get_version()
-                    await self.get_serial()
-                # advertise to HA lamp is now available:
+                    await self._write_cmd(struct.pack("BB16x", COMMAND_STX, CMD_GETVER))
+                    await self._write_cmd(struct.pack("BB16x", COMMAND_STX, CMD_GETSERIAL))
+                await self._refresh_candela_status_from_status_char()
                 self.run_state_changed_cb()
 
             _LOGGER.debug(f"Connection status: {self._conn}")
@@ -227,13 +245,12 @@ class Lamp:
             _LOGGER.error("Pairing: Cannot request pair as not connected")
             return
         try:
-            if self._model == MODEL_CANDELA and self._is_client_bluez:
+            if self._model == MODEL_CANDELA:
                 await self._client.write_gatt_char(CONTROL_UUID, bits)
                 return
             self._pair_resp_event.clear()
             await self._client.write_gatt_char(CONTROL_UUID, bits)
-            # wait after pairing to receive notif of pair result:
-            await self._pair_resp_event.wait()
+            await asyncio.wait_for(self._pair_resp_event.wait(), timeout=10)
         except asyncio.TimeoutError:
             _LOGGER.error("Pairing: Timeout error")
         except BleakError as err:
@@ -282,6 +299,38 @@ class Lamp:
     def color(self) -> tuple[int, int, int]:
         return self._rgb
 
+    async def _refresh_candela_status_from_status_char(self) -> bool:
+        """Refresh Candela state through its readable status characteristic.
+
+        ESPHome Bluetooth proxy does not deliver Candela notifications reliably,
+        so Get_state may succeed while HA never receives RES_GETSTATE.  The
+        Candela exposes a readable status characteristic; byte 0 is the power
+        flag used by passive BLE readers, byte 1 commonly tracks brightness.
+        """
+        if self._model != MODEL_CANDELA or self._client is None:
+            return False
+        try:
+            raw = bytes(await self._client.read_gatt_char(STATUS_UUID))
+            _LOGGER.debug(
+                "Candela status char raw=%s", raw.hex() if raw else "empty"
+            )
+            if not raw:
+                return False
+            self._is_on = raw[0] != 0
+            if len(raw) > 1 and 0 <= raw[1] <= 100:
+                self._brightness = raw[1]
+            if self._is_on and self._brightness <= 0:
+                self._brightness = 100
+            self._mode = self.MODE_WHITE
+            return True
+        except Exception as err:
+            _LOGGER.warning(
+                "Candela status char refresh failed: %s: %s",
+                type(err).__name__,
+                err,
+            )
+            return False
+
     def get_prop_min_max(self) -> dict[str, Any]:
         return {
             "brightness": {"min": 0, "max": 100},
@@ -289,21 +338,46 @@ class Lamp:
             "color": {"min": 0, "max": 255},
         }
 
-    async def send_cmd(self, bits: bytes, wait_notif: float = 0.5) -> bool:
-        await self.connect()
-        if self._conn == Conn.PAIRED and self._client is not None:
-            try:
-                await self._client.write_gatt_char(CONTROL_UUID, bytearray(bits))
-                await asyncio.sleep(wait_notif)
-                return True
-            except asyncio.TimeoutError:
-                _LOGGER.error("Send Cmd: Timeout error")
-            except BleakError as err:
-                _LOGGER.error(f"Send Cmd: BleakError: {err}")
+    async def _write_cmd(self, bits: bytes, wait_notif: float = 0.5) -> bool:
+        if self._client is None:
+            return False
+        try:
+            await self._client.write_gatt_char(CONTROL_UUID, bytearray(bits))
+            await asyncio.sleep(wait_notif)
+            return True
+        except asyncio.TimeoutError:
+            _LOGGER.error("Send Cmd: Timeout error")
+        except BleakError as err:
+            _LOGGER.error(f"Send Cmd: BleakError: {err}")
         return False
 
+    async def send_cmd(self, bits: bytes, wait_notif: float = 0.5, retries: int = 1) -> bool:
+        async with self._operation_lock:
+            for attempt in range(retries + 1):
+                await self.connect()
+                if self._conn == Conn.PAIRED and self._client is not None:
+                    if await self._write_cmd(bits, wait_notif):
+                        return True
+                if attempt < retries:
+                    _LOGGER.warning(
+                        f"send_cmd attempt {attempt + 1} failed, "
+                        f"reconnecting and retrying"
+                    )
+                    await self.disconnect()
+                    await asyncio.sleep(0.5)
+            return False
+
     async def get_state(self) -> None:
-        """Request the state of the lamp (send back state through notif)"""
+        """Request the state of the lamp."""
+        if self._model == MODEL_CANDELA:
+            _LOGGER.debug("Candela get_state: using status characteristic, not CMD_GETSTATE")
+            async with self._operation_lock:
+                await self.connect()
+                refreshed = await self._refresh_candela_status_from_status_char()
+            if refreshed:
+                self.run_state_changed_cb()
+            return
+
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_GETSTATE, CMD_GETSTATE_SEC)
         _LOGGER.debug("Send Cmd: Get_state")
         await self.send_cmd(bits)
@@ -312,13 +386,22 @@ class Lamp:
         """Turn the lamp on. (send back state through notif)"""
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_POWER, CMD_POWER_ON)
         _LOGGER.debug("Send Cmd: Turn On")
-        await self.send_cmd(bits)
+        await self.send_cmd(bits, wait_notif=0 if self._model == MODEL_CANDELA else 0.5)
+        if self._model == MODEL_CANDELA:
+            self._is_on = True
+            if self._brightness <= 0:
+                self._brightness = 100
+            self.run_state_changed_cb()
 
     async def turn_off(self) -> None:
         """Turn the lamp off. (send back state through notif)"""
         bits = struct.pack("BBB15x", COMMAND_STX, CMD_POWER, CMD_POWER_OFF)
         _LOGGER.debug("Send Cmd: Turn Off")
-        await self.send_cmd(bits)
+        await self.send_cmd(bits, wait_notif=0 if self._model == MODEL_CANDELA else 0.5)
+        if self._model == MODEL_CANDELA:
+            self._is_on = False
+            self._brightness = 0
+            self.run_state_changed_cb()
 
     # set_brightness/temperature/color do NOT send a notification back.
     # However, the lamp takes time to transition to new state
@@ -388,6 +471,8 @@ class Lamp:
         :args: - data : the received data from the lamp in hex format
         """
         _LOGGER.debug(f"Received 0x{data.hex()} from handle={cHandle}")
+        if self._model == MODEL_CANDELA:
+            _LOGGER.debug("Candela notification handle=%s raw=%s", cHandle, data.hex())
 
         res_type = struct.unpack("xB16x", data)[0]  # the type of response we got
         if res_type == RES_GETSTATE:  # state result
