@@ -202,6 +202,8 @@ class YeelightBT(LightEntity):
     @property
     def color_mode(self) -> str:
         """Return the current color mode of the light."""
+        if self._dev.model == MODEL_CANDELA:
+            return ColorMode.BRIGHTNESS
         if self._ct > 0:
             return ColorMode.COLOR_TEMP
         return ColorMode.HS        
