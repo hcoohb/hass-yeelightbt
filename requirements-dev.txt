@@ -1,7 +1,8 @@
 # requirements for development
 pre-commit
-# optional for live feedback in IDE
-black
+ruff
 mypy
-flake8
-isort
+pytest-homeassistant-custom-component
+# needed by HA's bluetooth/usb components, not pulled in by the test harness
+aiousbwatcher
+serialx

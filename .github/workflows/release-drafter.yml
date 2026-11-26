@@ -26,7 +26,7 @@ jobs:
     steps:
       # First we use release-drafter for calc the next version based on PR labels
       # Drafts your next Release notes as Pull Requests are merged into "master"
-      - uses: release-drafter/release-drafter@v5
+      - uses: release-drafter/release-drafter@v6
         id: release_drafter
         # (Optional) specify config name to use, relative to .github/. Default: release-drafter.yml
         with:
@@ -36,7 +36,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Now create the PR for next version
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Make version change
         run: |
           tag=${{ steps.release_drafter.outputs.tag_name }}
@@ -48,7 +48,7 @@ jobs:
           sed -i 's/"version": *"[^"]*"/"version": "'${version}'"/' $filename
       - name: Create Pull Request
         id: cpr
-        uses: peter-evans/create-pull-request@v4
+        uses: peter-evans/create-pull-request@v7
         with:
           commit-message: Update release version ${{ steps.release_drafter.outputs.tag_name }}
           committer: GitHub <noreply@github.com>
@@ -63,7 +63,7 @@ jobs:
             skip-changelog
 
       # Now create the proper release-draft based on version in the code
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Get version from file
         id: get_version
         run: |
@@ -74,7 +74,7 @@ jobs:
           echo "Version read is: $ver"
           echo "::set-output name=version::$ver"
       # Drafts your next Release notes as Pull Requests are merged into "master"
-      - uses: release-drafter/release-drafter@v5
+      - uses: release-drafter/release-drafter@v6
         id: release_drafter_real
         with:
           tag: "v${{ steps.get_version.outputs.version }}"
