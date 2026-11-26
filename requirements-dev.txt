@@ -3,3 +3,6 @@ pre-commit
 ruff
 mypy
 pytest-homeassistant-custom-component
+# needed by HA's bluetooth/usb components, not pulled in by the test harness
+aiousbwatcher
+serialx
