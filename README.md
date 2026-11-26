@@ -1,12 +1,6 @@
-> **Warning**
-> The bluetooth landscape in HA is currently evolving and at the moment there still seem to be some issues with Candela.
-> Current status:
->
-> - For HA prior to 2022.7.0 => use release v0.11.3
-> - For HA 2022.7.0 => use release v1.0.1 (Candela does not seem to work)
-> - For HA 2022.8.0+ => v1.1.0+ is compatible with and without the bluetooth integration (Candela is still WIP)
-> - For HA 2022.9.0+ => v1.2.1+ is compatible with and without the bluetooth integration (Candela still not working)
-> - For HA 2022.10.0+ => v1.2.2+ is compatible with the bluetooth integration and with esp bluetooth proxy (Candela control may work?)
+> **Note**
+> Version 2.0.0 requires Home Assistant 2025.2 or newer and has been tested against Home Assistant 2026.10.
+> For older Home Assistant versions, use release v1.4.x.
 
 # Home Assistant custom component for Yeelight Bedside lamp
 
@@ -67,12 +61,11 @@ Since version 1.0.0, this component uses the [`bleak`](https://github.com/hbldh/
 
 ## Adding the device to HA
 
-You must have the `bluetooth` integration enabled and configured (HA 2022.8+) or a connected ESPhome device running the bluetooth proxy (HA 2022.10+). The Lamps should be automatically discovered and you will receive a notification prompting you to add it.
+You need the `bluetooth` integration with a local adapter, or an ESPHome device running as a bluetooth proxy. Lamps are discovered automatically and you get a notification to add them.
 
-The devices can also be added through the `integration menu` UI:
+You can also add a lamp from **Settings → Devices & services → Add integration → Yeelight bluetooth**. Pick one of the lamps Home Assistant has already seen, or type its MAC address.
 
-- In Configuration/Integrations click on the + button, select `Yeelight bluetooth` and you can either scan for the devices or configure the name and mac address manually on the form.  
-  The light is automatically added and a device is created.
+To see what the integration knows about a lamp (connection state, firmware, which adapter or proxy hears it), use **Download diagnostics** on the device page.
 
 Please ensure the following steps prior to adding a new light:
 
@@ -85,12 +78,10 @@ Please ensure the following steps prior to adding a new light:
 1. If the light has been previously paired with another device, best to reset it following [this youtube video](https://www.youtube.com/watch?v=PnjcOSgnbAM)
 2. The custom component will automatically request a pairing with the lamp if it needs to. When the pairing request is sent, the light will **pulse**. You then need to push the little button at the top of the lamp. Once paired you can control the lamp through HA
 
-# A note on bleak and bluetooth in HA
+# Supported lamps
 
-Starting with 2022.08, HA is trying to provide a framework centered around the bleak library so that all components can use the same interface and avoid conflicts between the different ble libraries. This is early days and there is still some active work trying to stabilise everything but this integration component has now been converted to be compatible with HA `bluetooth` integration.
-
-In the process, unfortunately it seems that the candela is not working at the moment.
-I only have one yeelight bedside, so if you have issues with candela or multiple lights, please report an issue (with debugging logs) so we can try to sort it out.
+- **Bedside lamp** (`XMCTD_*`): on/off, brightness, colour temperature and colour.
+- **Candela** (`yeelight_ms*`): on/off and brightness. Candela support is less tested; please report issues with debug logs.
 
 # Debugging
 
@@ -118,7 +109,7 @@ Please ensure the following:
 
 6. The light has been fully reset so that it is not paired with any device.
 7. Restart HA
-8. Reinstall the yeelight_bt integration and find the light through a scan.
+8. Re-add the Yeelight bluetooth integration and pick the lamp from the list.
 9. check the logs and report. Thanks
 
 # Other info

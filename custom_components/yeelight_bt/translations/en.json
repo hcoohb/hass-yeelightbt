@@ -1,34 +1,37 @@
 {
   "config": {
+    "flow_title": "{name}",
     "step": {
       "user": {
         "title": "Yeelight Bluetooth",
-        "description": "Control a Yeelight bluetooth bedside lamp. Select to scan for devices or enter the mac Address manually.",
+        "description": "Pick a lamp found by Home Assistant's bluetooth integration (or a bluetooth proxy), or type its MAC address. The lamp must not be connected to the Yeelight app.",
         "data": {
-          "entry_method": "Method to be used:"
+          "name": "Name",
+          "mac": "Lamp"
         }
       },
-      "scan": {
-        "title": "Yeelight Bluetooth",
-        "description": "Make sure the lamp is not connected to other devices or it may not be discoverable (A reset may also help).  Are you ready to start scanning?"
-      },
-      "device": {
-        "title": "Yeelight Bluetooth",
-        "description": "Enter a name for the device and the MAC address for the lamp. To finish the pairing step, you may need to push the small button on the lamp if it `pulses`.",
+      "bluetooth_confirm": {
+        "title": "Yeelight {model}",
+        "description": "Add the Yeelight {model} at {address}? On first connection the lamp may pulse: push the small button on top of it to finish pairing.",
         "data": {
-          "name": "Lamp Name",
-          "mac": "MAC address"
+          "name": "Name"
         }
       }
     },
     "error": {
-      "general_error": "There was an unknown error.",
-      "BTLEDisconnectError": "Bluetooth connection error while trying to scan. Make sure nothing else is using bluetooth.",
-      "BTLEManagementError": "Could not start a bluetooth scan. It is very likely some permission errors. Follow directions from github repo."
+      "invalid_mac": "Enter a MAC address like AA:BB:CC:DD:EE:FF."
     },
     "abort": {
-      "already_configured": "This mac address is already registered.",
-      "no_devices_found": "No devices found during this scan. Ensure the lamp is not connected to another app. Resetting the lamp may help."
+      "already_configured": "This lamp is already configured.",
+      "already_in_progress": "Setup of this lamp is already in progress."
+    }
+  },
+  "exceptions": {
+    "no_scanner": {
+      "message": "No bluetooth scanner found. Enable the Bluetooth integration or set up an ESPHome bluetooth proxy."
+    },
+    "device_not_found": {
+      "message": "Could not find the Yeelight lamp with address {address}."
     }
   }
 }

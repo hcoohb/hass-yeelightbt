@@ -3,6 +3,7 @@ Creator : hcoohb
 License : MIT
 Source  : https://github.com/hcoohb/hass-yeelightbt
 """
+
 from __future__ import annotations
 
 # Standard imports
@@ -10,11 +11,11 @@ import asyncio
 import enum
 import logging
 import struct
-from typing import Any, Callable, cast
+from collections.abc import Callable
+from typing import Any, cast
 
 # 3rd party imports
 from bleak import BleakClient, BleakError, BleakScanner
-from bleak.backends.client import BaseBleakClient
 from bleak.backends.device import BLEDevice
 from bleak_retry_connector import establish_connection
 
@@ -58,8 +59,10 @@ class Conn(enum.Enum):
 _LOGGER = logging.getLogger(__name__)
 
 
-def model_from_name(ble_name: str) -> str:
+def model_from_name(ble_name: str | None) -> str:
     model = MODEL_UNKNOWN
+    if not ble_name:
+        return model
     if ble_name.startswith("XMCTD_"):
         model = MODEL_BEDSIDE
     if ble_name.startswith("yeelight_ms"):
@@ -80,25 +83,21 @@ class Lamp:
         self._client: BleakClient | None = None
         self._ble_device = ble_device
         self._mac = self._ble_device.address
-        _LOGGER.debug(
-            f"Initializing Yeelight Lamp {self._ble_device.name} ({self._mac})"
-        )
+        _LOGGER.debug(f"Initializing Yeelight Lamp {self._ble_device.name} ({self._mac})")
         _LOGGER.debug(f"BLE_device details: {self._ble_device.details}")
         self._is_on = False
         self._rgb = (0, 0, 0)
         self._brightness = 0
         self._temperature = 0
-        self.versions: str | None = None
+        self.versions: tuple[int, ...] | None = None
+        self.serial: int | None = None
         self._model = model_from_name(self._ble_device.name)
-        self._mode: int | None = (
-            self.MODE_WHITE if self._model == MODEL_CANDELA else None
-        )
+        self._mode: int | None = self.MODE_WHITE if self._model == MODEL_CANDELA else None
         # store func to call on state received:
         self._state_callbacks: list[Callable[[], None]] = []
         self._conn = Conn.DISCONNECTED
         self._pair_resp_event = asyncio.Event()
         self._read_service = False
-        self._is_client_bluez = True
 
     def __str__(self) -> str:
         """The string representation"""
@@ -107,13 +106,9 @@ class Lamp:
             self.MODE_WHITE: "White",
             self.MODE_FLOW: "Flow",
         }
-        str_rgb = (
-            f"rgb_{self._rgb} "
-            if self._mode in [self.MODE_COLOR, self.MODE_FLOW]
-            else ""
-        )
+        str_rgb = f"rgb_{self._rgb} " if self._mode in [self.MODE_COLOR, self.MODE_FLOW] else ""
         str_temp = f"temp_{self._temperature}" if self._mode == self.MODE_WHITE else ""
-        str_mode = mode_str[self._mode] if self._mode in mode_str else self._mode
+        str_mode = mode_str[self._mode] if self._mode in mode_str else self._mode  # noqa: SIM401
         str_bri = f"bri_{self._brightness} " if self._mode else ""
         str_rep = (
             f"<Lamp {self._mac} "
@@ -124,18 +119,39 @@ class Lamp:
         )
         return str_rep
 
-    def add_callback_on_state_changed(self, func: Callable[[], None]) -> None:
+    def add_callback_on_state_changed(self, func: Callable[[], None]) -> Callable[[], None]:
         """
         Register callbacks to be called when lamp state is received or bt disconnected
+        Returns a function that removes the callback.
         """
         self._state_callbacks.append(func)
+
+        def _remove() -> None:
+            if func in self._state_callbacks:
+                self._state_callbacks.remove(func)
+
+        return _remove
+
+    def set_ble_device(self, ble_device: BLEDevice) -> None:
+        """Update the BLEDevice (e.g. when another adapter or proxy sees the lamp)."""
+        self._ble_device = ble_device
+
+    @property
+    def _is_client_bluez(self) -> bool:
+        """Return True when the lamp is reached through a local BlueZ adapter.
+
+        BlueZ devices expose their D-Bus object path in the BLEDevice details,
+        whereas remote scanners (e.g. ESPHome proxies) do not.
+        """
+        details = self._ble_device.details
+        return isinstance(details, dict) and "path" in details
 
     def run_state_changed_cb(self) -> None:
         """Execute all registered callbacks for a state change"""
         for func in self._state_callbacks:
             func()
 
-    def diconnected_cb(self, client: BaseBleakClient) -> None:
+    def disconnected_cb(self, client: BleakClient) -> None:
         _LOGGER.debug(f"Disconnected CB from client {client}")
         # ensure we are responding to the newest client:
         # if client != self._client:
@@ -145,9 +161,7 @@ class Lamp:
         self.run_state_changed_cb()
 
     async def connect(self, num_tries: int = 3) -> None:
-        if (
-            self._client and not self._client.is_connected
-        ):  # check the connection has not dropped
+        if self._client and not self._client.is_connected:  # check the connection has not dropped
             await self.disconnect()
         if self._conn == Conn.PAIRING or self._conn == Conn.PAIRED:
             # We do not try to reconnect if we are disconnected or unpaired
@@ -162,16 +176,10 @@ class Lamp:
                 BleakClient,
                 device=self._ble_device,
                 name=self._mac,
-                disconnected_callback=self.diconnected_cb,
+                disconnected_callback=self.disconnected_cb,
                 max_attempts=4,
             )
-            _LOGGER.debug(
-                f"Client used is: {self._client}. Backend is {self._client._backend}"
-            )
-            self._is_client_bluez = (
-                str(type(self._client._backend))
-                == "<class 'bleak.backends.bluezdbus.client.BleakClientBlueZDBus'>"
-            )
+            _LOGGER.debug(f"Client used is: {self._client}. Local BlueZ: {self._is_client_bluez}")
             self._conn = Conn.UNPAIRED
             _LOGGER.debug(f"Connected: {self._client.is_connected}")
 
@@ -215,7 +223,7 @@ class Lamp:
 
             _LOGGER.debug(f"Connection status: {self._conn}")
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _LOGGER.error("Connection Timeout error")
         except BleakError as err:
             _LOGGER.error(f"Connection: BleakError: {err}")
@@ -234,7 +242,7 @@ class Lamp:
             await self._client.write_gatt_char(CONTROL_UUID, bits)
             # wait after pairing to receive notif of pair result:
             await self._pair_resp_event.wait()
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _LOGGER.error("Pairing: Timeout error")
         except BleakError as err:
             _LOGGER.error(f"Pairing: BleakError: {err}")
@@ -244,7 +252,7 @@ class Lamp:
             return
         try:
             await self._client.disconnect()
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _LOGGER.error("Disconnection: Timeout error")
         except BleakError as err:
             _LOGGER.error(f"Disconnection: BleakError: {err}")
@@ -296,7 +304,7 @@ class Lamp:
                 await self._client.write_gatt_char(CONTROL_UUID, bytearray(bits))
                 await asyncio.sleep(wait_notif)
                 return True
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 _LOGGER.error("Send Cmd: Timeout error")
             except BleakError as err:
                 _LOGGER.error(f"Send Cmd: BleakError: {err}")
@@ -353,9 +361,7 @@ class Lamp:
         if brightness is None:
             brightness = self._brightness
         _LOGGER.debug(f"Set_color {(red, green, blue)}, {brightness}")
-        bits = struct.pack(
-            "BBBBBBB11x", COMMAND_STX, CMD_RGB, red, green, blue, 0x01, brightness
-        )
+        bits = struct.pack("BBBBBBB11x", COMMAND_STX, CMD_RGB, red, green, blue, 0x01, brightness)
         _LOGGER.debug("Send Cmd: Color")
         if await self.send_cmd(bits, wait_notif=0):
             self._rgb = (red, green, blue)
@@ -380,7 +386,7 @@ class Lamp:
         _LOGGER.debug("Send Cmd: Get_Serial")
         await self.send_cmd(bits)
 
-    def notification_handler(self, cHandle: int, data: bytearray) -> None:
+    def notification_handler(self, cHandle: Any, data: bytearray) -> None:
         """Method called when a notification is sent from the lamp
         It is processed here rather than in the handleNotification() function,
         because the latter is not a method of the Lamp class, therefore it can't access
@@ -440,7 +446,7 @@ class Lamp:
                 self._pair_resp_event.set()
 
         if res_type == RES_GETVER:
-            self.versions = cast(str, struct.unpack("xxBHHHH6x", data))
+            self.versions = cast(tuple[int, ...], struct.unpack("xxBHHHH6x", data))
             _LOGGER.info(f"Lamp {self._mac} exposes versions:{self.versions}")
 
         if res_type == RES_GETSERIAL:
@@ -459,7 +465,7 @@ class Lamp:
                         _LOGGER.info(
                             f"__[Characteristic] {char} ({','.join(char.properties)}), Value: {str(value)}"
                         )
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 - debug dump only
                         _LOGGER.error(
                             f"__[Characteristic] {char} ({','.join(char.properties)}), Value: {e}"
                         )
@@ -472,26 +478,20 @@ class Lamp:
 
                 for descriptor in char.descriptors:
                     try:
-                        value = bytes(
-                            await self._client.read_gatt_descriptor(descriptor.handle)
-                        )
-                        _LOGGER.info(
-                            f"____[Descriptor] {descriptor}) | Value: {str(value)}"
-                        )
-                    except Exception as e:
+                        value = bytes(await self._client.read_gatt_descriptor(descriptor.handle))
+                        _LOGGER.info(f"____[Descriptor] {descriptor}) | Value: {str(value)}")
+                    except Exception as e:  # noqa: BLE001 - debug dump only
                         _LOGGER.error(f"____[Descriptor] {descriptor}) | Value: {e}")
 
 
-async def find_device_by_address(
-    address: str, timeout: float = 20.0
-) -> BLEDevice | None:
+async def find_device_by_address(address: str, timeout: float = 20.0) -> BLEDevice | None:
     from bleak import BleakScanner
 
     return await BleakScanner.find_device_by_address(address.upper(), timeout=timeout)
 
 
 async def discover_yeelight_lamps(
-    scanner: type[BleakScanner] | None = None,
+    scanner: Any = None,
 ) -> list[dict[str, Any]]:
     """Scanning feature
     Scan the BLE neighborhood for an Yeelight lamp
@@ -511,7 +511,6 @@ async def discover_yeelight_lamps(
 
 
 if __name__ == "__main__":
-
     import sys
 
     # bleak backends are very loud, this reduces the log spam when using --debug

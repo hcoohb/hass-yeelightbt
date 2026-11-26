@@ -1,7 +1,5 @@
 # requirements for development
 pre-commit
-# optional for live feedback in IDE
-black
+ruff
 mypy
-flake8
-isort
+pytest-homeassistant-custom-component
